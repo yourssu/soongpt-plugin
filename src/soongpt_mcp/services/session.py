@@ -173,3 +173,11 @@ async def get_student_info_app(
     """학생 정보 Application을 생성합니다."""
     app_builder = rusaint.StudentInformationApplicationBuilder()
     return await app_builder.build(session)
+
+
+async def get_course_schedule_app(
+    session: rusaint.USaintSession,
+) -> rusaint.CourseScheduleApplication:
+    """강의시간표 Application을 생성합니다."""
+    app_builder = rusaint.CourseScheduleApplicationBuilder()
+    return await app_builder.build(session)
