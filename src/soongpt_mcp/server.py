@@ -77,6 +77,61 @@ async def get_graduation_status() -> dict:
     return _jsonify(result)
 
 
+@mcp.tool()
+async def find_lectures(
+    year: int,
+    semester: str,
+    category_type: str,
+    collage: str | None = None,
+    department: str | None = None,
+    major: str | None = None,
+    lecture_name: str | None = None,
+    category: str | None = None,
+    keyword: str | None = None,
+    include_details: bool = False,
+) -> dict:
+    """숭실대 SSAINT 강의시간표에서 특정 학기/카테고리 강의를 검색합니다.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    category_type에 따라 필요한 파라미터:
+    - "major" / "recognized_other_major": collage, department 필수, major 선택
+    - "graduated": collage, department 필수
+    - "required_elective" / "chapel": lecture_name 필수
+    - "optional_elective": category 필수 (교양 분야명)
+    - "connected_major" / "united_major": major 필수
+    - "find_by_professor" / "find_by_lecture": keyword 필수
+    - "education" / "cyber": 추가 파라미터 없음
+
+    반환: { lectures: [...], count, fetchTime, includeDetails }
+    include_details=True 시 강의계획서(syllabus)와 상세정보(detail) 포함 (느림).
+
+    최초 사용 전 터미널에서 'soongpt-mcp-login'을 실행하여 로그인해야 합니다.
+    세션이 만료된 경우에도 재로그인이 필요합니다.
+    """
+    session_json = await _require_session()
+    service = RusaintService()
+    try:
+        result = await service.find_lectures(
+            session_json,
+            year=year,
+            semester=semester,
+            category_type=category_type,
+            collage=collage,
+            department=department,
+            major=major,
+            lecture_name=lecture_name,
+            category=category,
+            keyword=keyword,
+            include_details=include_details,
+        )
+    except SSOTokenError as exc:
+        raise RuntimeError(
+            "세션이 만료되었습니다. 터미널에서 'soongpt-mcp-login'을 다시 실행하세요."
+        ) from exc
+    return _jsonify(result)
+
+
 def run() -> None:
     """Run the MCP server on stdio (default transport)."""
     mcp.run()

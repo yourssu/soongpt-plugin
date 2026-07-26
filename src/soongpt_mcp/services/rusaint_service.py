@@ -27,6 +27,7 @@ from soongpt_mcp.services.exceptions import (
     RusaintInternalError,
 )
 from soongpt_mcp.services.rusaint_academic_service import RusaintAcademicService
+from soongpt_mcp.services.rusaint_course_schedule_service import RusaintCourseScheduleService
 from soongpt_mcp.services.rusaint_graduation_service import RusaintGraduationService
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class RusaintService:
     - fetch_usaint_snapshot: 전체 스냅샷 (학적+졸업, 4세션)
     - fetch_usaint_snapshot_academic: 학적/성적만 → Academic 서비스 위임
     - fetch_usaint_graduation_info: 졸업사정표만 → Graduation 서비스 위임
+    - find_lectures: 강의시간표 검색 → CourseSchedule 서비스 위임
     - validate_session: 세션 JSON 유효성 검증
     """
 
@@ -47,6 +49,7 @@ class RusaintService:
     def __init__(self) -> None:
         self._academic = RusaintAcademicService()
         self._graduation = RusaintGraduationService()
+        self._course_schedule = RusaintCourseScheduleService()
 
     async def fetch_usaint_snapshot(
         self,
@@ -164,6 +167,35 @@ class RusaintService:
     ) -> dict:
         """졸업사정표 조회. → Graduation 서비스 위임."""
         return await self._graduation.fetch_usaint_graduation_info(session_json)
+
+    async def find_lectures(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        category_type: str,
+        collage: Optional[str] = None,
+        department: Optional[str] = None,
+        major: Optional[str] = None,
+        lecture_name: Optional[str] = None,
+        category: Optional[str] = None,
+        keyword: Optional[str] = None,
+        include_details: bool = False,
+    ) -> dict:
+        """강의시간표 검색. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.find_lectures(
+            session_json,
+            year=year,
+            semester=semester,
+            category_type=category_type,
+            collage=collage,
+            department=department,
+            major=major,
+            lecture_name=lecture_name,
+            category=category,
+            keyword=keyword,
+            include_details=include_details,
+        )
 
     async def validate_session(self, session_json: str) -> None:
         """
