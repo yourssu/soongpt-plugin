@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "soongpt-mcp"
+version = "0.1.0"
+description = "MCP server exposing Soongsil University uSaint data via rusaint"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "soongpt-mcp contributors" },
+]
+keywords = ["mcp", "soongsil", "rusaint", "uaint"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "mcp[fastmcp]>=1.0",
+    "rusaint==0.16.3",
+    "keyring>=24.0",
+    "pydantic>=2.0",
+    "tenacity>=8.2",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+soongpt-mcp = "soongpt_mcp.__main__:main"
+soongpt-mcp-login = "soongpt_mcp.cli:login_main"
+
+[project.urls]
+Homepage = "https://github.com/spreadone/soongpt-mcp"
+Repository = "https://github.com/spreadone/soongpt-mcp"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/soongpt_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/soongpt_mcp", "README.md", "pyproject.toml"]
