@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from .profile import (
     SUBMISSION_FIELDS,
     UserProfile,
+    build_category_requests,
     load_profile,
     save_profile,
 )
@@ -145,6 +146,58 @@ async def find_lectures(
             category=category,
             keyword=keyword,
             include_details=include_details,
+        )
+
+    result = await _run_with_session(call)
+    return _jsonify(result)
+
+
+@mcp.tool()
+async def get_available_lectures(year: int, semester: str) -> dict:
+    """저장된 사용자 프로필 기반으로 이번 학기에 들을 수 있는 과목을 통합 조회합니다.
+
+    내부적으로 profile → build_category_requests → 여러 카테고리 병렬 fetch →
+    {category_type: {lectures, count, error}} 그룹화 형태로 반환.
+
+    현재 뼈대 단계로 build_category_requests가 빈 리스트를 반환하므로
+    groups도 빈 객체로 나옵니다. 카테고리 스펙은 후속 PR에서 채워집니다.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { year, semester, groups: {category_type: {lectures, count, error}},
+            totalCount, fetchTime, requestedCategories }
+
+    사전 조건: set_user_profile 또는 refresh_user_profile로 프로필이 저장되어 있어야 함.
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
+    """
+    profile = load_profile()
+    if profile is None:
+        raise RuntimeError(
+            "저장된 프로필이 없습니다. set_user_profile 또는 refresh_user_profile로 "
+            "먼저 프로필을 설정하세요."
+        )
+
+    requests = build_category_requests(profile)
+
+    if not requests:
+        return {
+            "year": year,
+            "semester": semester,
+            "groups": {},
+            "totalCount": 0,
+            "fetchTime": "0.00s",
+            "requestedCategories": [],
+        }
+
+    service = RusaintService()
+
+    async def call(session_json: str):
+        return await service.get_available_lectures(
+            session_json,
+            year=year,
+            semester=semester,
+            requests=requests,
         )
 
     result = await _run_with_session(call)

@@ -155,6 +155,23 @@ def load_profile(path: Path | None = None) -> UserProfile | None:
         return None
 
 
+def build_category_requests(profile: UserProfile) -> list[Any]:
+    """사용자 프로필 기반으로 조회할 카테고리 요청 목록 생성.
+
+    TODO(사용자 지정): 어떤 카테고리를 부를지 후속 PR에서 결정. 예:
+    - major: profile.college, profile.department, profile.major 필요
+    - optional_elective: 사용자 관심 분야 (별도 입력 필드 필요)
+    - chapel: lecture_name 지정
+    - education: 교직이수자만 (profile 필드 추가 필요)
+    - graduated: profile.college, profile.department
+
+    UserProfile 스키마를 건드리지 않으려면 별도 설정 파일/툴로 관심 분야를
+    받아야 함. 이 뼈대에서는 빈 리스트를 반환하며, get_available_lectures는
+    빈 groups를 정상 반환함.
+    """
+    return []
+
+
 def save_profile(profile: UserProfile, path: Path | None = None) -> Path:
     """프로필 저장. 부모 디렉토리 자동 생성.
 

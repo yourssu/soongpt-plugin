@@ -17,9 +17,13 @@ from typing import List, Optional, Tuple
 import rusaint
 
 from soongpt_mcp.schemas.usaint_schemas import BasicInfo, UsaintSnapshotResponse
-from soongpt_mcp.services.constants import SEMESTER_TYPE_MAP
-from soongpt_mcp.services import session as session_module
 from soongpt_mcp.services import fetchers
+from soongpt_mcp.services import session as session_module
+from soongpt_mcp.services.constants import SEMESTER_TYPE_MAP
+from soongpt_mcp.services.course_catalog import (
+    LectureCategoryRequest,
+    fetch_available_lectures,
+)
 from soongpt_mcp.services.exceptions import (
     SSOTokenError,
     RusaintConnectionError,
@@ -27,7 +31,9 @@ from soongpt_mcp.services.exceptions import (
     RusaintInternalError,
 )
 from soongpt_mcp.services.rusaint_academic_service import RusaintAcademicService
-from soongpt_mcp.services.rusaint_course_schedule_service import RusaintCourseScheduleService
+from soongpt_mcp.services.rusaint_course_schedule_service import (
+    RusaintCourseScheduleService,
+)
 from soongpt_mcp.services.rusaint_graduation_service import RusaintGraduationService
 
 logger = logging.getLogger(__name__)
@@ -194,6 +200,24 @@ class RusaintService:
             lecture_name=lecture_name,
             category=category,
             keyword=keyword,
+            include_details=include_details,
+        )
+
+    async def get_available_lectures(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        requests: list[LectureCategoryRequest],
+        include_details: bool = False,
+    ) -> dict:
+        """들을 수 있는 과목 통합 조회. → course_catalog.fetch_available_lectures 위임."""
+        return await fetch_available_lectures(
+            session_json,
+            year,
+            semester,
+            requests,
+            service=self._course_schedule,
             include_details=include_details,
         )
 
