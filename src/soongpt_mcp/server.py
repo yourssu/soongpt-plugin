@@ -180,6 +180,9 @@ async def get_available_lectures(year: int, semester: str) -> dict:
 
     requests = build_category_requests(profile)
 
+    # 빈 requests 분기: session_manager를 거치지 않기 위한 진입점 최적화.
+    # course_catalog.fetch_available_lectures에도 동일한 분기가 있지만,
+    # 여기서 사로잡으면 캐시된 세션조차 조회하지 않고 즉시 반환.
     if not requests:
         return {
             "year": year,

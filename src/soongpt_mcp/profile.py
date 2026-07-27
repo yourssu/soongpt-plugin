@@ -15,9 +15,12 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from soongpt_mcp.services.course_catalog import LectureCategoryRequest
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +158,7 @@ def load_profile(path: Path | None = None) -> UserProfile | None:
         return None
 
 
-def build_category_requests(profile: UserProfile) -> list[Any]:
+def build_category_requests(profile: UserProfile) -> list[LectureCategoryRequest]:
     """사용자 프로필 기반으로 조회할 카테고리 요청 목록 생성.
 
     TODO(사용자 지정): 어떤 카테고리를 부를지 후속 PR에서 결정. 예:

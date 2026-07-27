@@ -25,7 +25,7 @@ class _FakeManager:
 
 @pytest.mark.asyncio
 async def test_no_profile_raises_with_guidance(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "soongpt_mcp.server.load_profile", lambda: None
@@ -43,12 +43,8 @@ async def test_empty_category_requests_returns_empty_groups(
         "soongpt_mcp.server.load_profile",
         lambda: UserProfile(department="컴퓨터학부", grade=3, entered_year=2023),
     )
-    monkeypatch.setattr(
-        "soongpt_mcp.profile.build_category_requests",
-        lambda profile: [],
-    )
-    # build_category_requests는 server.py에서 import한 심볼을 쓰므로 server 모듈의
-    # 참조도 패치해야 함 — 그렇지 않으면 원본이 호출됨.
+    # server.py는 이미 import한 build_category_requests 심볼을 사용하므로
+    # server 모듈의 참조만 패치하면 됨.
     monkeypatch.setattr(
         "soongpt_mcp.server.build_category_requests",
         lambda profile: [],

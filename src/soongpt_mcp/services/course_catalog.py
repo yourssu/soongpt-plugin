@@ -44,8 +44,11 @@ async def fetch_available_lectures(
 
     - asyncio.gather(return_exceptions=True)로 부분 실패 허용
     - 실패한 카테고리는 error 필드에 메시지, 다른 카테고리는 정상 동작
-    - 같은 category_type이 여러 요청에 들어오면 마지막 요청 결과로 덮어씀
-      (TODO: 후속 PR에서 중복 키 처리 정책 결정)
+    - 같은 category_type이 여러 요청에 들어오면 마지막 요청 결과로 덮어씀.
+      이때 requestedCategories에는 중복 키가 순서대로 그대로 남음 (요청 의도 보존).
+      TODO: 중복 키 처리 정책은 후속 PR에서 결정
+    - 빈 requests 분기는 server.get_available_lectures에서도 중복 처리함
+      (session_manager를 건너뛰기 위한 최적화). 직접 호출자를 위해 여기서도 유지.
 
     반환 스키마:
         {
@@ -84,8 +87,15 @@ async def fetch_available_lectures(
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     groups: dict[str, dict[str, Any]] = {}
+    seen_keys: set[str] = set()
     for req, result in zip(requests, results):
         key = req.category_type
+        if key in seen_keys:
+            logger.warning(
+                "카테고리 '%s'가 여러 요청에 중복됨 — 마지막 결과로 덮어씀", key
+            )
+        seen_keys.add(key)
+
         if isinstance(result, BaseException):
             groups[key] = {
                 "lectures": [],
