@@ -89,6 +89,14 @@ def test_from_basic_info_rejects_unknown_type() -> None:
         UserProfile.from_basic_info(42)  # type: ignore[arg-type]
 
 
+def test_from_basic_info_partial_dict() -> None:
+    """일부 키만 있어도 None으로 채워 매핑."""
+    p = UserProfile.from_basic_info({"year": 2024})
+    assert p.entered_year == 2024
+    assert p.department is None
+    assert p.grade is None
+
+
 def test_apply_partial_update_rejects_unknown_field() -> None:
     p = UserProfile()
     with pytest.raises(ValueError, match="알 수 없는 프로필 필드"):
@@ -120,6 +128,23 @@ def test_apply_partial_update_validates_grade() -> None:
     p = UserProfile()
     with pytest.raises(ValidationError):
         p.apply_partial_update({"grade": 99})
+
+
+def test_apply_partial_update_coerces_numeric_string() -> None:
+    """MCP 도구는 value: Any로 받아 LLM이 "3" 문자열을 줄 수 있음.
+
+    pydantic v2 model_validate가 str→int 변환을 시도하므로 정수로 저장되어야 함.
+    """
+    p = UserProfile()
+    updated = p.apply_partial_update({"grade": "3", "entered_year": "2024"})
+    assert updated.grade == 3
+    assert updated.entered_year == 2024
+
+
+def test_apply_partial_update_rejects_non_numeric_grade() -> None:
+    p = UserProfile()
+    with pytest.raises(ValidationError):
+        p.apply_partial_update({"grade": "3학년"})
 
 
 def test_submission_fields_complete() -> None:

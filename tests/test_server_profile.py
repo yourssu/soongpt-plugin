@@ -30,13 +30,13 @@ def isolated_profile_path(
 
 @pytest.fixture
 def stub_snapshot(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """_fetch_basic_info_via_snapshot이 고정된 BasicInfo 반환하도록 stub."""
+    """_fetch_basic_info가 고정된 BasicInfo 반환하도록 stub."""
     basic = BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부")
 
     async def fake_fetch() -> BasicInfo:
         return basic
 
-    monkeypatch.setattr(server, "_fetch_basic_info_via_snapshot", fake_fetch)
+    monkeypatch.setattr(server, "_fetch_basic_info", fake_fetch)
     return {"year": 2023, "grade": 3, "department": "컴퓨터학부"}
 
 
@@ -112,6 +112,23 @@ async def test_set_profile_invalid_grade_raises(
 
 
 @pytest.mark.asyncio
+async def test_set_profile_coerces_numeric_string_grade(
+    isolated_profile_path: Path,
+) -> None:
+    """LLM이 grade를 "3" 문자열로 줘도 정수 3으로 저장."""
+    result = await server.set_user_profile("grade", "3")
+    assert result["profile"]["grade"] == 3
+
+
+@pytest.mark.asyncio
+async def test_set_profile_coerces_numeric_string_entered_year(
+    isolated_profile_path: Path,
+) -> None:
+    result = await server.set_user_profile("entered_year", "2024")
+    assert result["profile"]["entered_year"] == 2024
+
+
+@pytest.mark.asyncio
 async def test_set_profile_empty_string_clears_field(
     isolated_profile_path: Path,
 ) -> None:
@@ -177,6 +194,18 @@ async def test_refresh_without_preserve_discards_user_fields(
     assert profile["department"] == "컴퓨터학부"
     assert profile["grade"] == 3
     assert profile["entered_year"] == 2023
+    assert result["reset_user_overrides"] is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_with_preserve_marks_no_reset(
+    isolated_profile_path: Path,
+    stub_snapshot: dict[str, Any],
+) -> None:
+    server.save_profile(UserProfile(student_id="20240001"))
+    result = await server.refresh_user_profile(preserve_user_overrides=True)
+    assert result["reset_user_overrides"] is False
+    assert result["profile"]["student_id"] == "20240001"
 
 
 @pytest.mark.asyncio

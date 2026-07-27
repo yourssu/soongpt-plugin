@@ -156,26 +156,24 @@ def run() -> None:
     mcp.run()
 
 
-# ============================================================
 # User Profile Tools
-# ============================================================
 
 
-async def _fetch_basic_info_via_snapshot() -> Any:
-    """get_usaint_snapshot 흐름을 재사용해 basicInfo만 추출.
+async def _fetch_basic_info() -> Any:
+    """학적 기본 정보만 가볍게 조회 (1세션, ~2-3초).
 
+    refresh_user_profile이 전체 snapshot(9초) 대신 이 경로를 사용.
     세션 만료 시 자동 재로그인은 _run_with_session에서 처리됨.
     """
     service = RusaintService()
-    snapshot = await _run_with_session(service.fetch_usaint_snapshot)
-    return snapshot.basicInfo
+    return await _run_with_session(service.fetch_basic_info)
 
 
 @mcp.tool()
 async def get_user_profile() -> dict:
     """저장된 사용자 프로필 반환.
 
-    프로필이 없으면 안내 메시지와 함께 빈 스키마를 반환합니다.
+    프로필이 없으면 profile=None과 함께 안내 메시지를 반환합니다.
     프로필을 처음 만들려면 refresh_user_profile을 호출해 SSAINT에서 초기값을 가져오거나
     set_user_profile로 필드를 직접 입력하세요.
     """
@@ -214,24 +212,29 @@ async def set_user_profile(field: str, value: Any) -> dict:
 
 @mcp.tool()
 async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
-    """SSAINT snapshot에서 basicInfo를 재추출해 프로필을 갱신.
+    """SSAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
 
     preserve_user_overrides=True(기본)면 SSAINT가 제공하는 3개 필드
     (department, grade, entered_year)를 항상 SSAINT 값으로 덮어쓰고,
     나머지 필드(student_id, name, college, track)는 기존 저장값을 보존합니다.
 
     False면 기존 프로필을 무시하고 SSAINT 값만으로 새 프로필을 만듭니다
-    (비-SSAINT 필드는 모두 None).
+    (비-SSAINT 필드는 모두 None으로 리셋).
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
-    basic_info = await _fetch_basic_info_via_snapshot()
+    basic_info = await _fetch_basic_info()
     fresh = UserProfile.from_basic_info(basic_info)
+    refreshed = ["department", "grade", "entered_year"]
 
     if not preserve_user_overrides:
         save_profile(fresh)
-        return {"profile": _jsonify(fresh), "refreshed_fields": ["department", "grade", "entered_year"]}
+        return {
+            "profile": _jsonify(fresh),
+            "refreshed_fields": refreshed,
+            "reset_user_overrides": True,
+        }
 
     existing = load_profile() or UserProfile()
     merged = existing.model_copy(
@@ -245,7 +248,8 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     save_profile(merged)
     return {
         "profile": _jsonify(merged),
-        "refreshed_fields": ["department", "grade", "entered_year"],
+        "refreshed_fields": refreshed,
+        "reset_user_overrides": False,
     }
 
 

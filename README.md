@@ -32,7 +32,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 **저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile.json` (없으면 `~/.claude/state/soongpt-planner/profile.json`)
 
-**SSAINT가 채우는 필드** (3개): `department`, `grade`, `entered_year` — `refresh_user_profile`로 동기화
+**SSAINT가 채우는 필드** (3개): `department`, `grade`, `entered_year` — `refresh_user_profile`로 동기화 (학적 기본 정보만 가볍게 조회, ~2-3초)
 **사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력
 
 ### 워크플로우
@@ -42,6 +42,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
    → refresh_user_profile() 호출 → SSAINT에서 3개 필드 추출 저장
    → set_user_profile("student_id", "20240001") 로 학번 입력
    → set_user_profile("name", "홍길동") 으로 이름 입력
+   → set_user_profile("grade", 3) 처럼 정수 필드는 숫자로 (문자열 "3"도 자동 변환됨)
 
 2. 휴학/복학/전과 후: "내 프로필 업데이트해줘"
    → refresh_user_profile(preserve_user_overrides=True)
@@ -49,6 +50,8 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 3. 이후: 저장된 프로필 기반으로 시간표 추천/졸업 분석 (매번 SSAINT 호출 X)
 ```
+
+> 참고: 동시 호출 시 마지막 write가 이길 수 있습니다. MCP 클라이언트가 보통 직렬 호출하지만, 병렬 실행 시 lost update 가능성이 있습니다. 파일 쓰기는 atomic rename으로 크래시 중 손상을 방지합니다.
 
 ## 요구사항
 

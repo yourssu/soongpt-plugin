@@ -95,6 +95,8 @@ class UserProfile(BaseModel):
         """SSAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
 
         매핑: department, grade, entered_year만 추출. 나머지 필드는 None.
+        참고: BasicInfo.year는 fetchers.fetch_basic_info에서 admission_year를
+        저장한 필드 — 현재 입학연도를 가리킴 (기준 연도가 아님).
         """
         if hasattr(basic_info, "model_dump"):
             data = basic_info.model_dump()
@@ -154,9 +156,15 @@ def load_profile(path: Path | None = None) -> UserProfile | None:
 
 
 def save_profile(profile: UserProfile, path: Path | None = None) -> Path:
-    """프로필 저장. 부모 디렉토리 자동 생성."""
+    """프로필 저장. 부모 디렉토리 자동 생성.
+
+    임시 파일에 쓴 뒤 atomic rename하여 중단 시 손상 파일을 방지합니다.
+    """
     target = path or resolve_profile_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = profile.model_dump(mode="json")
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(serialized, encoding="utf-8")
+    os.replace(tmp, target)
     return target
