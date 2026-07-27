@@ -159,11 +159,13 @@ def run() -> None:
 # User Profile Tools
 
 
-async def _fetch_basic_info() -> Any:
+async def _fetch_basic_info_via_session() -> tuple[Any, list[str]]:
     """학적 기본 정보만 가볍게 조회 (1세션, ~2-3초).
 
     refresh_user_profile이 전체 snapshot(9초) 대신 이 경로를 사용.
     세션 만료 시 자동 재로그인은 _run_with_session에서 처리됨.
+
+    반환: (BasicInfo, warnings) — warnings는 NO_SEMESTER_INFO 등 데이터 누락 코드.
     """
     service = RusaintService()
     return await _run_with_session(service.fetch_basic_info)
@@ -223,8 +225,10 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
+
+    응답의 warnings는 SSAINT 데이터 누락 코드 (예: NO_SEMESTER_INFO).
     """
-    basic_info = await _fetch_basic_info()
+    basic_info, warnings = await _fetch_basic_info_via_session()
     fresh = UserProfile.from_basic_info(basic_info)
     refreshed = ["department", "grade", "entered_year"]
 
@@ -234,6 +238,7 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
             "profile": _jsonify(fresh),
             "refreshed_fields": refreshed,
             "reset_user_overrides": True,
+            "warnings": warnings,
         }
 
     existing = load_profile() or UserProfile()
@@ -250,6 +255,7 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
         "profile": _jsonify(merged),
         "refreshed_fields": refreshed,
         "reset_user_overrides": False,
+        "warnings": warnings,
     }
 
 

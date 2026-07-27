@@ -197,26 +197,30 @@ class RusaintService:
             include_details=include_details,
         )
 
-    async def fetch_basic_info(self, session_json: str) -> BasicInfo:
+    async def fetch_basic_info(
+        self, session_json: str
+    ) -> tuple[BasicInfo, list[str]]:
         """학적 기본 정보만 가볍게 조회 (~2-3초, 1세션).
 
         졸업사정표/수강이력 없이 department/grade/entered_year만 필요한
         refresh_user_profile 등에서 사용.
+
+        반환: (BasicInfo, warnings) — warnings는 NO_SEMESTER_INFO 등 데이터 누락 코드.
         """
         session = None
         try:
             session = await session_module.create_session_from_json(session_json)
             app = await session_module.get_student_info_app(session)
-            basic_info, _warnings = await fetchers.fetch_basic_info(app)
-            return basic_info
+            basic_info, warnings = await fetchers.fetch_basic_info(app)
+            return basic_info, warnings
         except (SSOTokenError, RusaintConnectionError, RusaintTimeoutError, RusaintInternalError):
             raise
         except rusaint.RusaintError as e:
             raise RusaintInternalError(
                 f"학적 기본 정보 조회 중 오류: {type(e).__name__} - {e!s}"
             ) from e
-        except asyncio.TimeoutError:
-            raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.") from None
+        except asyncio.TimeoutError as exc:
+            raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.") from exc
         except Exception as e:
             raise RusaintInternalError(
                 f"예기치 않은 오류: {type(e).__name__} - {e!s}"

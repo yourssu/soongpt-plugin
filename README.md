@@ -22,7 +22,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `get_user_profile` | 저장된 사용자 프로필 (없으면 안내) | 즉시 |
 | `set_user_profile` | 단일 필드 부분 업데이트 (학번/이름/학과/학년/트랙/입학연도/단과대) | 즉시 |
-| `refresh_user_profile` | SSAINT basicInfo로 주전공/학년/입학연도 재동기화 (사용자 수정값 보존 옵션) | ~9초 |
+| `refresh_user_profile` | SSAINT basicInfo로 주전공/학년/입학연도 재동기화 (사용자 수정값 보존 옵션) | ~2-3초 |
 
 여러 도구는 병렬로 동시 호출 가능 (Claude가 알아서 처리).
 

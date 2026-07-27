@@ -29,15 +29,30 @@ def isolated_profile_path(
 
 
 @pytest.fixture
-def stub_snapshot(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """_fetch_basic_info가 고정된 BasicInfo 반환하도록 stub."""
+def stub_basic_info(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """_fetch_basic_info_via_session이 고정된 (BasicInfo, warnings) 반환하도록 stub."""
     basic = BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부")
 
-    async def fake_fetch() -> BasicInfo:
-        return basic
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, []
 
-    monkeypatch.setattr(server, "_fetch_basic_info", fake_fetch)
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
     return {"year": 2023, "grade": 3, "department": "컴퓨터학부"}
+
+
+@pytest.fixture
+def stub_basic_info_with_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]:
+    """NO_SEMESTER_INFO 경고를 함께 반환하는 stub."""
+    basic = BasicInfo(year=2023, grade=1, semester=1, department="컴퓨터학부")
+    warnings = ["NO_SEMESTER_INFO"]
+
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, warnings
+
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
+    return warnings
 
 
 @pytest.mark.asyncio
@@ -142,7 +157,7 @@ async def test_set_profile_empty_string_clears_field(
 @pytest.mark.asyncio
 async def test_refresh_preserves_user_overrides(
     isolated_profile_path: Path,
-    stub_snapshot: dict[str, Any],
+    stub_basic_info: dict[str, Any],
 ) -> None:
     existing = UserProfile(
         student_id="20240001",
@@ -172,12 +187,13 @@ async def test_refresh_preserves_user_overrides(
         "entered_year",
         "grade",
     ]
+    assert result["warnings"] == []
 
 
 @pytest.mark.asyncio
 async def test_refresh_without_preserve_discards_user_fields(
     isolated_profile_path: Path,
-    stub_snapshot: dict[str, Any],
+    stub_basic_info: dict[str, Any],
 ) -> None:
     existing = UserProfile(
         student_id="20240001",
@@ -200,7 +216,7 @@ async def test_refresh_without_preserve_discards_user_fields(
 @pytest.mark.asyncio
 async def test_refresh_with_preserve_marks_no_reset(
     isolated_profile_path: Path,
-    stub_snapshot: dict[str, Any],
+    stub_basic_info: dict[str, Any],
 ) -> None:
     server.save_profile(UserProfile(student_id="20240001"))
     result = await server.refresh_user_profile(preserve_user_overrides=True)
@@ -211,7 +227,7 @@ async def test_refresh_with_preserve_marks_no_reset(
 @pytest.mark.asyncio
 async def test_refresh_preserve_on_empty_profile(
     isolated_profile_path: Path,
-    stub_snapshot: dict[str, Any],
+    stub_basic_info: dict[str, Any],
 ) -> None:
     result = await server.refresh_user_profile(preserve_user_overrides=True)
     profile = result["profile"]
@@ -225,7 +241,7 @@ async def test_refresh_preserve_on_empty_profile(
 @pytest.mark.asyncio
 async def test_refresh_updates_updated_at(
     isolated_profile_path: Path,
-    stub_snapshot: dict[str, Any],
+    stub_basic_info: dict[str, Any],
 ) -> None:
     old_timestamp = datetime(2020, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     existing = UserProfile(student_id="20240001", updated_at=old_timestamp)
@@ -238,3 +254,13 @@ async def test_refresh_updates_updated_at(
     updated_at_str = result["profile"]["updated_at"]
     parsed = datetime.fromisoformat(updated_at_str)
     assert before <= parsed <= after
+
+
+@pytest.mark.asyncio
+async def test_refresh_propagates_warnings(
+    isolated_profile_path: Path,
+    stub_basic_info_with_warnings: list[str],
+) -> None:
+    """SSAINT에서 warnings(NO_SEMESTER_INFO 등)가 오면 응답에 전달."""
+    result = await server.refresh_user_profile(preserve_user_overrides=True)
+    assert result["warnings"] == stub_basic_info_with_warnings
