@@ -34,7 +34,6 @@ dependencies = [
 
 [project.scripts]
 soongpt-mcp = "soongpt_mcp.__main__:main"
-soongpt-mcp-login = "soongpt_mcp.cli:login_main"
 
 [project.urls]
 Homepage = "https://github.com/spreadone/soongpt-mcp"
