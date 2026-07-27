@@ -1,13 +1,14 @@
 """FastMCP server exposing the Soongsil uSaint snapshot tool."""
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from .auth import load_session
 from .services.exceptions import SSOTokenError
 from .services.rusaint_service import RusaintService
+from .session_manager import SessionError, get_session_manager
 
 mcp = FastMCP("soongpt-mcp")
 
@@ -23,14 +24,39 @@ def _jsonify(obj: Any) -> Any:
     return obj
 
 
-async def _require_session() -> str:
-    """공통: 세션 JSON 로드, 없으면 로그인 가이드 에러 발생."""
-    session_json = load_session()
-    if not session_json:
+async def _run_with_session(
+    service_call: Callable[[str], Awaitable[Any]],
+) -> Any:
+    """세션 확보 후 service_call 실행. SSOTokenError 시 1회 재로그인 후 재시도.
+
+    흐름:
+    1. 세션 로드/웹 로그인 → service_call(session_json)
+    2. SSOTokenError → invalidate → 자동 웹 로그인 → service_call 재실행
+    3. 재시도에서도 SSOTokenError → 포기
+    """
+    manager = get_session_manager()
+    try:
+        session_json = await manager.get_valid_session()
+    except SessionError as exc:
+        raise RuntimeError(f"로그인 자동 진행 실패: {exc}") from exc
+
+    try:
+        return await service_call(session_json)
+    except SSOTokenError:
+        pass
+
+    manager.invalidate()
+    try:
+        session_json = await manager.get_valid_session()
+    except SessionError as exc:
+        raise RuntimeError(f"세션 만료 후 재로그인 실패: {exc}") from exc
+
+    try:
+        return await service_call(session_json)
+    except SSOTokenError as exc:
         raise RuntimeError(
-            "로그인이 필요합니다. 터미널에서 'soongpt-mcp-login'을 실행하세요."
-        )
-    return session_json
+            "재로그인 후에도 세션이 유효하지 않습니다. 숭실대 uSaint 서버에 일시적 문제일 수 있습니다."
+        ) from exc
 
 
 @mcp.tool()
@@ -40,17 +66,11 @@ async def get_usaint_snapshot() -> dict:
     반환: basicInfo, takenCourses, lowGradeSubjectCodes, flags, warnings.
     졸업사정표는 별도 도구 get_graduation_status를 사용하세요.
 
-    최초 사용 전 터미널에서 'soongpt-mcp-login'을 실행하여 로그인해야 합니다.
-    세션이 만료된 경우에도 재로그인이 필요합니다.
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
-    session_json = await _require_session()
     service = RusaintService()
-    try:
-        snapshot = await service.fetch_usaint_snapshot(session_json)
-    except SSOTokenError as exc:
-        raise RuntimeError(
-            "세션이 만료되었습니다. 터미널에서 'soongpt-mcp-login'을 다시 실행하세요."
-        ) from exc
+    snapshot = await _run_with_session(service.fetch_usaint_snapshot)
     if hasattr(snapshot, "model_dump"):
         return snapshot.model_dump(mode="json")
     return snapshot
@@ -63,17 +83,11 @@ async def get_graduation_status() -> dict:
     반환: 개별 졸업 요건 상세(requirements) + 핵심 요약(graduationSummary).
     학적/수강 데이터는 get_usaint_snapshot을 사용하세요.
 
-    최초 사용 전 터미널에서 'soongpt-mcp-login'을 실행하여 로그인해야 합니다.
-    세션이 만료된 경우에도 재로그인이 필요합니다.
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
-    session_json = await _require_session()
     service = RusaintService()
-    try:
-        result = await service.fetch_usaint_graduation_info(session_json)
-    except SSOTokenError as exc:
-        raise RuntimeError(
-            "세션이 만료되었습니다. 터미널에서 'soongpt-mcp-login'을 다시 실행하세요."
-        ) from exc
+    result = await _run_with_session(service.fetch_usaint_graduation_info)
     return _jsonify(result)
 
 
@@ -106,13 +120,13 @@ async def find_lectures(
     반환: { lectures: [...], count, fetchTime, includeDetails }
     include_details=True 시 강의계획서(syllabus)와 상세정보(detail) 포함 (느림).
 
-    최초 사용 전 터미널에서 'soongpt-mcp-login'을 실행하여 로그인해야 합니다.
-    세션이 만료된 경우에도 재로그인이 필요합니다.
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
-    session_json = await _require_session()
     service = RusaintService()
-    try:
-        result = await service.find_lectures(
+
+    async def call(session_json: str):
+        return await service.find_lectures(
             session_json,
             year=year,
             semester=semester,
@@ -125,10 +139,8 @@ async def find_lectures(
             keyword=keyword,
             include_details=include_details,
         )
-    except SSOTokenError as exc:
-        raise RuntimeError(
-            "세션이 만료되었습니다. 터미널에서 'soongpt-mcp-login'을 다시 실행하세요."
-        ) from exc
+
+    result = await _run_with_session(call)
     return _jsonify(result)
 
 
