@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .profile import (
+    SUBMISSION_FIELDS,
+    UserProfile,
+    load_profile,
+    save_profile,
+)
 from .services.exceptions import SSOTokenError
 from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
@@ -147,6 +154,99 @@ async def find_lectures(
 def run() -> None:
     """Run the MCP server on stdio (default transport)."""
     mcp.run()
+
+
+# ============================================================
+# User Profile Tools
+# ============================================================
+
+
+async def _fetch_basic_info_via_snapshot() -> Any:
+    """get_usaint_snapshot 흐름을 재사용해 basicInfo만 추출.
+
+    세션 만료 시 자동 재로그인은 _run_with_session에서 처리됨.
+    """
+    service = RusaintService()
+    snapshot = await _run_with_session(service.fetch_usaint_snapshot)
+    return snapshot.basicInfo
+
+
+@mcp.tool()
+async def get_user_profile() -> dict:
+    """저장된 사용자 프로필 반환.
+
+    프로필이 없으면 안내 메시지와 함께 빈 스키마를 반환합니다.
+    프로필을 처음 만들려면 refresh_user_profile을 호출해 SSAINT에서 초기값을 가져오거나
+    set_user_profile로 필드를 직접 입력하세요.
+    """
+    profile = load_profile()
+    if profile is None:
+        return {
+            "profile": None,
+            "guidance": (
+                "저장된 프로필이 없습니다. refresh_user_profile을 호출해 SSAINT에서 초기값을 "
+                "가져오거나 set_user_profile로 학번/이름 등을 직접 설정하세요."
+            ),
+        }
+    return {"profile": _jsonify(profile)}
+
+
+@mcp.tool()
+async def set_user_profile(field: str, value: Any) -> dict:
+    """프로필의 단일 필드를 부분 업데이트 후 저장된 전체 프로필 반환.
+
+    허용 필드: student_id, name, college, department, grade (1~6),
+    track, entered_year. grade는 정수, 나머지는 문자열. 빈 문자열/None은 필드를
+    None으로 설정합니다. updated_at은 자동 갱신됩니다.
+
+    프로필이 없으면 빈 프로필을 생성한 뒤 필드를 채웁니다.
+    """
+    if field not in SUBMISSION_FIELDS:
+        raise ValueError(
+            f"알 수 없는 프로필 필드: {field}. 허용 필드: {sorted(SUBMISSION_FIELDS)}"
+        )
+
+    existing = load_profile() or UserProfile()
+    updated = existing.apply_partial_update({field: value})
+    save_profile(updated)
+    return {"profile": _jsonify(updated)}
+
+
+@mcp.tool()
+async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
+    """SSAINT snapshot에서 basicInfo를 재추출해 프로필을 갱신.
+
+    preserve_user_overrides=True(기본)면 SSAINT가 제공하는 3개 필드
+    (department, grade, entered_year)를 항상 SSAINT 값으로 덮어쓰고,
+    나머지 필드(student_id, name, college, track)는 기존 저장값을 보존합니다.
+
+    False면 기존 프로필을 무시하고 SSAINT 값만으로 새 프로필을 만듭니다
+    (비-SSAINT 필드는 모두 None).
+
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
+    """
+    basic_info = await _fetch_basic_info_via_snapshot()
+    fresh = UserProfile.from_basic_info(basic_info)
+
+    if not preserve_user_overrides:
+        save_profile(fresh)
+        return {"profile": _jsonify(fresh), "refreshed_fields": ["department", "grade", "entered_year"]}
+
+    existing = load_profile() or UserProfile()
+    merged = existing.model_copy(
+        update={
+            "department": fresh.department,
+            "grade": fresh.grade,
+            "entered_year": fresh.entered_year,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+    save_profile(merged)
+    return {
+        "profile": _jsonify(merged),
+        "refreshed_fields": ["department", "grade", "entered_year"],
+    }
 
 
 if __name__ == "__main__":
