@@ -7,6 +7,18 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .graduation import (
+    is_cache_fresh,
+    load_graduation_cache,
+    save_graduation_cache,
+)
+from .interview import (
+    SECTION_NAMES as INTERVIEW_SECTION_NAMES,
+    InterviewResult,
+    list_interview_files as _list_interview_files,
+    load_interview,
+    save_interview,
+)
 from .profile import (
     SUBMISSION_FIELDS,
     UserProfile,
@@ -69,7 +81,7 @@ async def _run_with_session(
 
 @mcp.tool()
 async def get_usaint_snapshot() -> dict:
-    """숭실대 SSAINT에서 학적/수강/성적 데이터를 가져옵니다 (가공 전 raw).
+    """숭실대 USAINT에서 학적/수강/성적 데이터를 가져옵니다 (가공 전 raw).
 
     반환: basicInfo, takenCourses, lowGradeSubjectCodes, flags, warnings.
     졸업사정표는 별도 도구 get_graduation_status를 사용하세요.
@@ -85,18 +97,41 @@ async def get_usaint_snapshot() -> dict:
 
 
 @mcp.tool()
-async def get_graduation_status() -> dict:
-    """숭실대 SSAINT에서 졸업사정표 데이터를 가져옵니다 (약 5-6초).
+async def get_graduation_status(force_refresh: bool = False) -> dict:
+    """숭실대 USAINT에서 졸업사정표 데이터를 가져옵니다 (약 5-6초).
 
-    반환: 개별 졸업 요건 상세(requirements) + 핵심 요약(graduationSummary).
+    캐싱: 30일 TTL의 로컬 캐시 우선 사용. force_refresh=True이거나 캐시 만료/없음
+    시 신규 fetch 후 캐시 갱신.
+
+    반환: 개별 졸업 요건 상세(requirements) + 핵심 요약(graduationSummary) +
+    메타(_cache: {source, cached_at, age_days}). source="cache"면 캐시 hit,
+    "fresh"면 이번 호출에서 fetch.
     학적/수강 데이터는 get_usaint_snapshot을 사용하세요.
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
+    if not force_refresh:
+        cached, cached_at = load_graduation_cache()
+        if cached is not None and cached_at is not None and is_cache_fresh(cached_at):
+            age_days = (datetime.now(timezone.utc) - cached_at).days
+            return {**cached, "_cache": {
+                "source": "cache",
+                "cached_at": cached_at.isoformat(),
+                "age_days": age_days,
+            }}
+
     service = RusaintService()
     result = await _run_with_session(service.fetch_usaint_graduation_info)
-    return _jsonify(result)
+    payload = _jsonify(result)
+    if isinstance(payload, dict):
+        save_graduation_cache(payload)
+    now = datetime.now(timezone.utc)
+    return {**payload, "_cache": {
+        "source": "fresh",
+        "cached_at": now.isoformat(),
+        "age_days": 0,
+    }}
 
 
 @mcp.tool()
@@ -112,7 +147,7 @@ async def find_lectures(
     keyword: str | None = None,
     include_details: bool = False,
 ) -> dict:
-    """숭실대 SSAINT 강의시간표에서 특정 학기/카테고리 강의를 검색합니다.
+    """숭실대 USAINT 강의시간표에서 특정 학기/카테고리 강의를 검색합니다.
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
@@ -232,7 +267,7 @@ async def get_user_profile() -> dict:
     """저장된 사용자 프로필 반환.
 
     프로필이 없으면 profile=None과 함께 안내 메시지를 반환합니다.
-    프로필을 처음 만들려면 refresh_user_profile을 호출해 SSAINT에서 초기값을 가져오거나
+    프로필을 처음 만들려면 refresh_user_profile을 호출해 USAINT에서 초기값을 가져오거나
     set_user_profile로 필드를 직접 입력하세요.
     """
     profile = load_profile()
@@ -240,7 +275,7 @@ async def get_user_profile() -> dict:
         return {
             "profile": None,
             "guidance": (
-                "저장된 프로필이 없습니다. refresh_user_profile을 호출해 SSAINT에서 초기값을 "
+                "저장된 프로필이 없습니다. refresh_user_profile을 호출해 USAINT에서 초기값을 "
                 "가져오거나 set_user_profile로 학번/이름 등을 직접 설정하세요."
             ),
         }
@@ -270,19 +305,19 @@ async def set_user_profile(field: str, value: Any) -> dict:
 
 @mcp.tool()
 async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
-    """SSAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
+    """USAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
 
-    preserve_user_overrides=True(기본)면 SSAINT가 제공하는 3개 필드
-    (department, grade, entered_year)를 항상 SSAINT 값으로 덮어쓰고,
+    preserve_user_overrides=True(기본)면 USAINT가 제공하는 3개 필드
+    (department, grade, entered_year)를 항상 USAINT 값으로 덮어쓰고,
     나머지 필드(student_id, name, college, track)는 기존 저장값을 보존합니다.
 
-    False면 기존 프로필을 무시하고 SSAINT 값만으로 새 프로필을 만듭니다
-    (비-SSAINT 필드는 모두 None으로 리셋).
+    False면 기존 프로필을 무시하고 USAINT 값만으로 새 프로필을 만듭니다
+    (비-USAINT 필드는 모두 None으로 리셋).
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
 
-    응답의 warnings는 SSAINT 데이터 누락 코드 (예: NO_SEMESTER_INFO).
+    응답의 warnings는 USAINT 데이터 누락 코드 (예: NO_SEMESTER_INFO).
     """
     basic_info, warnings = await _fetch_basic_info_via_session()
     fresh = UserProfile.from_basic_info(basic_info)
@@ -313,6 +348,81 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
         "reset_user_overrides": False,
         "warnings": warnings,
     }
+
+
+# Interview Tools
+
+
+@mcp.tool()
+async def get_interview(year: int, semester: str) -> dict:
+    """특정 학기 인터뷰 결과 조회.
+
+    semester: "1" | "2"
+    반환: { interview: {...} | null, completion: {section: bool}, guidance? }
+    인터뷰가 없으면 interview=null과 안내 메시지.
+    """
+    interview = load_interview(year, semester)
+    if interview is None:
+        return {
+            "interview": None,
+            "completion": {
+                name: False for name in INTERVIEW_SECTION_NAMES
+            },
+            "guidance": (
+                f"저장된 인터뷰가 없습니다 ({year}-{semester}). "
+                "set_interview로 섹션별로 채우세요."
+            ),
+        }
+    return {
+        "interview": _jsonify(interview),
+        "completion": interview.completion_summary(),
+    }
+
+
+@mcp.tool()
+async def set_interview(
+    year: int,
+    semester: str,
+    section: str,
+    content: str,
+) -> dict:
+    """특정 학기 인터뷰의 한 섹션을 텍스트로 저장.
+
+    semester: "1" | "2"
+    section: semester_strategy | time_preferences | subject_preferences
+    content: 해당 섹션에 저장할 자연어 요약 텍스트. 기존 내용을 덮어씀.
+
+    인터뷰가 없으면 새로 생성. updated_at 자동 갱신.
+    """
+    if semester not in ("1", "2"):
+        raise ValueError(
+            f"semester는 '1' 또는 '2'만 허용됩니다: {semester!r}"
+        )
+    if section not in INTERVIEW_SECTION_NAMES:
+        raise ValueError(
+            f"알 수 없는 인터뷰 섹션: {section}. "
+            f"허용 섹션: {sorted(INTERVIEW_SECTION_NAMES)}"
+        )
+
+    existing = load_interview(year, semester) or InterviewResult(
+        year=year, semester=semester
+    )
+    updated = existing.apply_section_update(section, content)
+    save_interview(updated)
+    return {
+        "interview": _jsonify(updated),
+        "completion": updated.completion_summary(),
+    }
+
+
+@mcp.tool()
+async def list_interviews() -> dict:
+    """저장된 모든 학기 인터뷰 목록 반환.
+
+    반환: { interviews: [{year, semester, completion, updated_at}], count }
+    """
+    items = _list_interview_files()
+    return {"interviews": items, "count": len(items)}
 
 
 if __name__ == "__main__":

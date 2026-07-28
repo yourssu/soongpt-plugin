@@ -43,4 +43,4 @@ Repository = "https://github.com/spreadone/soongpt-mcp"
 packages = ["src/soongpt_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/soongpt_mcp", "README.md", "pyproject.toml"]
+include = ["src/soongpt_mcp", "skills", "README.md", "pyproject.toml"]

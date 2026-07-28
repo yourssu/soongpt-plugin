@@ -1,6 +1,6 @@
 """get/set/refresh_user_profile MCP 툴 엔드투엔드 테스트.
 
-SSAINT 세션/네트워크는 mock 처리. 파일 경로는 tmp_path로 격리.
+USAINT 세션/네트워크는 mock 처리. 파일 경로는 tmp_path로 격리.
 """
 from __future__ import annotations
 
@@ -261,6 +261,6 @@ async def test_refresh_propagates_warnings(
     isolated_profile_path: Path,
     stub_basic_info_with_warnings: list[str],
 ) -> None:
-    """SSAINT에서 warnings(NO_SEMESTER_INFO 등)가 오면 응답에 전달."""
+    """USAINT에서 warnings(NO_SEMESTER_INFO 등)가 오면 응답에 전달."""
     result = await server.refresh_user_profile(preserve_user_overrides=True)
     assert result["warnings"] == stub_basic_info_with_warnings
