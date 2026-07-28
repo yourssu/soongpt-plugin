@@ -1,12 +1,18 @@
 """사용자 프로필 영속화 스키마 + 로드/저장.
 
 매번 get_usaint_snapshot을 호출하지 않도록 학적 컨텍스트를 로컬에 저장.
-SSAINT에서 가져올 수 없는 필드(학번/이름/단과대/트랙)는 사용자가 수동 입력하고,
-SSAINT에서 추출 가능한 필드(주전공/학년/입학연도)는 refresh_user_profile로 덮어쓰기.
+USAINT에서 가져올 수 없는 필드(학번/이름/단과대/트랙)는 사용자가 수동 입력하고,
+USAINT에서 추출 가능한 필드(주전공/학년/입학연도)는 refresh_user_profile로 덮어쓰기.
+
+학기별 스냅샷으로 관리 (SPR-33): 전과/학년 증가/세부전공 선택 등 가변 사항을
+학기 단위로 고정하기 위해 profile_{year}_{semester}.json 형태로 저장.
 
 저장 경로:
-- ${CLAUDE_PLUGIN_DATA}/profile.json (플러그인 구성 시)
-- ~/.claude/state/soongpt-planner/profile.json (폴백)
+- ${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json (플러그인 구성 시)
+- ~/.claude/state/soongpt-planner/profile_{year}_{semester}.json (폴백)
+
+레거시 profile.json (SPR-30)은 현재 학기 파일이 없을 때 읽기 fallback용으로
+남아 있을 수 있으며, 다음 save 시점에 새 경로로 마이그레이션됨.
 """
 from __future__ import annotations
 
@@ -18,6 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .semester import current_academic_period
 
 if TYPE_CHECKING:
     from soongpt_mcp.services.course_catalog import LectureCategoryRequest
@@ -38,18 +46,33 @@ SUBMISSION_FIELDS: frozenset[str] = frozenset(
 )
 
 
-def resolve_profile_path() -> Path:
-    """프로필 JSON 파일 경로 해석.
+LEGACY_PROFILE_FILENAME = "profile.json"
 
-    CLAUDE_PLUGIN_DATA 환경변수가 있으면 해당 디렉토리, 없으면 ~/.claude/state/soongpt-planner/.
-    부모 디렉토리는 자동 생성하지 않음 (save 시 생성).
-    """
+
+def _profile_root() -> Path:
+    """프로필 저장 디렉토리 루트. CLAUDE_PLUGIN_DATA 우선, 없으면 ~/.claude/state/..."""
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
-        root = Path(base)
-    else:
-        root = Path.home() / ".claude" / "state" / "soongpt-planner"
-    return root / "profile.json"
+        return Path(base)
+    return Path.home() / ".claude" / "state" / "soongpt-planner"
+
+
+def resolve_profile_path(
+    year: int | None = None, semester: str | None = None
+) -> Path:
+    """프로필 JSON 파일 경로 해석.
+
+    year/semester 생략 시 현재 학기(current_academic_period) 사용.
+    부모 디렉토리는 자동 생성하지 않음 (save 시 생성).
+    """
+    if year is None or semester is None:
+        year, semester = current_academic_period()
+    return _profile_root() / f"profile_{year}_{semester}.json"
+
+
+def _resolve_legacy_profile_path() -> Path:
+    """레거시 profile.json 경로 (SPR-30). 마이그레이션 읽기 전용."""
+    return _profile_root() / LEGACY_PROFILE_FILENAME
 
 
 class UserProfile(BaseModel):
@@ -95,7 +118,7 @@ class UserProfile(BaseModel):
 
     @classmethod
     def from_basic_info(cls, basic_info: Any) -> UserProfile:
-        """SSAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
+        """USAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
 
         매핑: department, grade, entered_year만 추출. 나머지 필드는 None.
         참고: BasicInfo.year는 fetchers.fetch_basic_info에서 admission_year를
@@ -141,20 +164,26 @@ class UserProfile(BaseModel):
 def load_profile(path: Path | None = None) -> UserProfile | None:
     """저장된 프로필 로드. 파일 없으면 None.
 
+    현재 학기 파일이 없으면 레거시 profile.json(SPR-30 스키마)에서 읽어 마이그레이션.
     JSON 파싱/스키마 위반 시에도 None 반환 후 경고 로그 (손상 파일 복구 지점).
     """
     target = path or resolve_profile_path()
+    source = target
     if not target.exists():
-        return None
+        legacy = _resolve_legacy_profile_path()
+        if legacy.exists() and legacy != target:
+            source = legacy
+        else:
+            return None
     try:
-        raw = target.read_text(encoding="utf-8")
+        raw = source.read_text(encoding="utf-8")
         data = json.loads(raw)
         return UserProfile.model_validate(data)
     except (json.JSONDecodeError, ValueError) as exc:
-        logger.warning("프로필 파일 파싱 실패 (%s): %s", target, exc)
+        logger.warning("프로필 파일 파싱 실패 (%s): %s", source, exc)
         return None
     except OSError as exc:
-        logger.warning("프로필 파일 읽기 실패 (%s): %s", target, exc)
+        logger.warning("프로필 파일 읽기 실패 (%s): %s", source, exc)
         return None
 
 
@@ -179,6 +208,8 @@ def save_profile(profile: UserProfile, path: Path | None = None) -> Path:
     """프로필 저장. 부모 디렉토리 자동 생성.
 
     임시 파일에 쓴 뒤 atomic rename하여 중단 시 손상 파일을 방지합니다.
+    새 경로(profile_{year}_{semester}.json)로 저장한 후, 레거시 profile.json이
+    남아 있으면 best-effort로 제거하여 마이그레이션을 완료합니다.
     """
     target = path or resolve_profile_path()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -187,4 +218,12 @@ def save_profile(profile: UserProfile, path: Path | None = None) -> Path:
     tmp = target.with_suffix(target.suffix + ".tmp")
     tmp.write_text(serialized, encoding="utf-8")
     os.replace(tmp, target)
+
+    if path is None:
+        legacy = _resolve_legacy_profile_path()
+        if legacy.exists() and legacy != target:
+            try:
+                legacy.unlink()
+            except OSError as exc:
+                logger.warning("레거시 프로필 제거 실패 (%s): %s", legacy, exc)
     return target
