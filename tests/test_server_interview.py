@@ -134,3 +134,30 @@ async def test_set_interview_whitespace_only_not_complete(
     )
     assert result["interview"]["semester_strategy"] == "   "
     assert result["completion"]["semester_strategy"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_interviews_skips_malformed_files(
+    isolated_root: Path,
+) -> None:
+    """interview_*.json 패턴이지만 스키마 위반인 파일은 건너뜀 (best-effort).
+
+    스키마가 허용하는 파일(year/semester 타입만 맞)은 값이 이상해도 포함됨 —
+    list_interview_files는 스키마 검증만 하고 의미 검증은 안 함.
+    """
+    # 정상 파일 1개
+    await server.set_interview(
+        2026, "1", "semester_strategy", "15학점"
+    )
+    # glob 패턴은 맞으나 스키마 위반 (year/semester 누락)
+    bad = isolated_root / "interview_abc.json"
+    bad.write_text('{"semester_strategy": "x"}', encoding="utf-8")
+    # JSON 파싱 자체가 안 되는 파일
+    corrupt = isolated_root / "interview_corrupt.json"
+    corrupt.write_text("not json {{{", encoding="utf-8")
+
+    result = await server.list_interviews()
+    assert result["count"] == 1
+    only = result["interviews"][0]
+    assert only["year"] == 2026
+    assert only["semester"] == "1"

@@ -11,27 +11,32 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 - **보안**: 학번/비밀번호는 디스크에 저장되지 않음. OS 키체인만 사용
 - **가공 전 데이터 제공**: 데이터 해석/추천 로직은 Claude에게 맡김
 - **사용자 프로필 영속화**: 매번 USAINT를 호출하지 않고 학적 컨텍스트를 로컬에 저장
-- **7개 도구**: 학적/수강/성적, 졸업사정표, 강의시간표 검색, 들을 수 있는 과목 통합 조회, 프로필 조회/설정/갱신
+- **10개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 들을 수 있는 과목 통합 조회, 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
 
 ## 도구
 
 | 도구 | 반환 데이터 | 소요 시간 |
 |---|---|---|
 | `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목, 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 | ~9초 |
-| `get_graduation_status` | 졸업 요건 상세 항목 + 카테고리별 충족 여부 + 잔여 학점 | ~6초 |
+| `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `get_available_lectures` | 프로필 기반 여러 카테고리 병렬 조회 (틀: 카테고리 스펙은 후속 PR) | 카테고리 수에 따라 |
 | `get_user_profile` | 저장된 사용자 프로필 (없으면 안내) | 즉시 |
 | `set_user_profile` | 단일 필드 부분 업데이트 (학번/이름/학과/학년/트랙/입학연도/단과대) | 즉시 |
 | `refresh_user_profile` | USAINT basicInfo로 주전공/학년/입학연도 재동기화 (사용자 수정값 보존 옵션) | ~2-3초 |
+| `get_interview` | 특정 학기 인터뷰 결과 (3개 섹션) + completion 맵 | 즉시 |
+| `set_interview` | 인터뷰 섹션 텍스트 저장 (자연어 요약, 덮어쓰기) | 즉시 |
+| `list_interviews` | 모든 학기 인터뷰 메타 목록 | 즉시 |
 
 여러 도구는 병렬로 동시 호출 가능 (Claude가 알아서 처리).
 
 ## 사용자 프로필
 
-학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도)를 로컬 JSON에 저장하여 매번 `get_usaint_snapshot`을 호출하지 않아도 됩니다.
+학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도)를 로컬 JSON에 저장하여 매번 `get_usaint_snapshot`을 호출하지 않아도 됩니다. 학기별 스냅샷(`profile_{year}_{semester}.json`)으로 관리되어 전과/학년 증가/세부전공 변경 시 과거 학기 컨텍스트가 보존됩니다.
 
-**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile.json` (없으면 `~/.claude/state/soongpt-planner/profile.json`)
+**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.claude/state/soongpt-planner/profile_{year}_{semester}.json`)
+
+**레거시 마이그레이션**: SPR-30의 단일 `profile.json`이 있으면 현재 학기 파일이 없을 때 자동 읽기 fallback → 다음 save 시 새 경로로 이전.
 
 **USAINT가 채우는 필드** (3개): `department`, `grade`, `entered_year` — `refresh_user_profile`로 동기화 (학적 기본 정보만 가볍게 조회, ~2-3초)
 **사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력
