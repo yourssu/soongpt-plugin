@@ -23,3 +23,6 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local notes / idea backlog (not tracked)
+IDEAS.md
