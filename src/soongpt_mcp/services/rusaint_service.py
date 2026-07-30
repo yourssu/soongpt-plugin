@@ -213,12 +213,13 @@ class RusaintService:
     async def fetch_basic_info(
         self, session_json: str
     ) -> tuple[BasicInfo, list[str]]:
-        """학적 기본 정보만 가볍게 조회 (~2-3초, 1세션).
+        """학적 기본 정보를 가볍게 조회 (~2-3초, 1세션).
 
-        졸업사정표/수강이력 없이 department/grade/entered_year만 필요한
+        졸업사정표/수강이력 없이 주전공/복수/연계/부전공/교직 정보만 필요한
         refresh_user_profile 등에서 사용.
 
         반환: (BasicInfo, warnings) — warnings는 NO_SEMESTER_INFO 등 데이터 누락 코드.
+            교직/복수 정보 조회 실패 시 해당 필드는 기본값(False/None).
         """
         session = None
         try:

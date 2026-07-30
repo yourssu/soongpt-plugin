@@ -42,6 +42,8 @@ SUBMISSION_FIELDS: frozenset[str] = frozenset(
         "double_major",
         "connected_major",
         "minor",
+        "teaching_certification",
+        "teaching_major",
     }
 )
 
@@ -101,6 +103,12 @@ class UserProfile(BaseModel):
     minor: str | None = Field(
         None, description="부전공 학과 (USAINT sub_major)"
     )
+    teaching_certification: bool = Field(
+        False, description="교직이수 여부 (True: 교직 이수자)"
+    )
+    teaching_major: str | None = Field(
+        None, description="교직 이수 전공명 (예: '컴퓨터교육'). 미이수 시 None"
+    )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="마지막 수정 시각",
@@ -118,7 +126,16 @@ class UserProfile(BaseModel):
             raise ValueError("학번은 숫자만 허용됩니다")
         return v
 
-    @field_validator("name", "college", "department", "track", "double_major", "connected_major", "minor")
+    @field_validator(
+        "name",
+        "college",
+        "department",
+        "track",
+        "double_major",
+        "connected_major",
+        "minor",
+        "teaching_major",
+    )
     @classmethod
     def _strip_text(cls, v: str | None) -> str | None:
         if v is None:
@@ -131,11 +148,14 @@ class UserProfile(BaseModel):
         """USAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
 
         매핑: department, grade, entered_year, double_major, connected_major,
-        minor 추출. 나머지 필드는 None.
+        minor, teaching_certification, teaching_major 추출. 나머지 필드는 None.
+
         참고: BasicInfo.year는 fetchers.fetch_basic_info에서 admission_year를
         저장한 필드 — 현재 입학연도를 가리킴 (기준 연도가 아님).
         double_major/connected_major/minor는 SPR-35에서 추가 (rusaint.plural_major,
         connected_major, sub_major — 모두 Optional).
+        teaching_certification/teaching_major는 SPR-36에서 추가 (rusaint
+        teaching_major.major_name — Optional).
         """
         if hasattr(basic_info, "model_dump"):
             data = basic_info.model_dump()
@@ -153,6 +173,8 @@ class UserProfile(BaseModel):
             double_major=data.get("double_major"),
             connected_major=data.get("connected_major"),
             minor=data.get("minor"),
+            teaching_certification=bool(data.get("teaching_certification")),
+            teaching_major=data.get("teaching_major"),
         )
 
     def apply_partial_update(self, updates: dict[str, Any]) -> UserProfile:

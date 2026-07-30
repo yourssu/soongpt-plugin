@@ -38,8 +38,12 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
     **민감 정보는 조회하지 않음**: 이름, 주민번호, 주소, 전화번호 등은 가져오지 않습니다.
     **휴학/엇학기/졸업유예 고려**: 계산이 아니라 유세인트에서 직접 크롤링
 
+    동일한 student_info_app 세션에서 general()과 qualifications()를 호출하므로
+    세션 1개로 주전공/복수/연계/부전공 + 교직 정보까지 한 번에 얻습니다.
+
     Returns:
-        tuple: (BasicInfo, warnings) — warnings에 NO_SEMESTER_INFO가 포함될 수 있음
+        tuple: (BasicInfo, warnings) — warnings에 NO_SEMESTER_INFO가 포함될 수 있음.
+            qualifications() 조회 자체가 실패하면 교직 필드는 기본값(False/None).
     """
     try:
         warnings: list[str] = []
@@ -92,6 +96,21 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
         )
         minor = _clean_optional_major(getattr(student_info, "sub_major", None))
 
+        # SPR-36: 교직 이수 정보 (qualifications에서만 추출 가능)
+        teaching_certification = False
+        teaching_major: str | None = None
+        try:
+            qualifications = await student_info_app.qualifications()
+            if qualifications.teaching_major:
+                teaching_major = _clean_optional_major(
+                    qualifications.teaching_major.major_name
+                )
+                teaching_certification = teaching_major is not None
+        except Exception as e:
+            logger.warning(
+                f"교직 정보 조회 실패 (선택 정보): {type(e).__name__}"
+            )
+
         return BasicInfo(
             year=admission_year,
             grade=grade,
@@ -100,6 +119,8 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
             double_major=double_major,
             connected_major=connected_major,
             minor=minor,
+            teaching_certification=teaching_certification,
+            teaching_major=teaching_major,
         ), warnings
     except ValueError:
         raise
@@ -233,9 +254,11 @@ async def fetch_flags(student_info_app) -> Flags:
         qualifications = await student_info_app.qualifications()
 
         teaching = False
+        teaching_major: str | None = None
         if qualifications.teaching_major:
             teaching_info = qualifications.teaching_major
-            teaching = teaching_info.major_name is not None
+            teaching_major = teaching_info.major_name
+            teaching = teaching_major is not None
 
         student_info = await student_info_app.general()
 
@@ -260,6 +283,7 @@ async def fetch_flags(student_info_app) -> Flags:
             doubleMajorDepartment=double_major,
             minorDepartment=minor,
             teaching=teaching,
+            teachingMajor=teaching_major,
         )
     except Exception as e:
         logger.warning(f"복수전공/교직 정보 조회 실패 (선택 정보): {type(e).__name__}")
@@ -267,6 +291,7 @@ async def fetch_flags(student_info_app) -> Flags:
             doubleMajorDepartment=None,
             minorDepartment=None,
             teaching=False,
+            teachingMajor=None,
         )
 
 

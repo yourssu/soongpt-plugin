@@ -41,6 +41,25 @@ def stub_basic_info(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 
 @pytest.fixture
+def stub_basic_info_with_teaching(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """교직 이수자 BasicInfo stub. teaching 필드가 BasicInfo에 직접 설정됨."""
+    basic = BasicInfo(
+        year=2023,
+        grade=3,
+        semester=5,
+        department="컴퓨터학부",
+        teaching_certification=True,
+        teaching_major="컴퓨터교육",
+    )
+
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, []
+
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
+    return {"teaching": True, "teaching_major": "컴퓨터교육"}
+
+
+@pytest.fixture
 def stub_basic_info_with_warnings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[str]:
@@ -189,8 +208,50 @@ async def test_refresh_preserves_user_overrides(
         "entered_year",
         "grade",
         "minor",
+        "teaching_certification",
+        "teaching_major",
     ]
     assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_refresh_overwrites_teaching_fields(
+    isolated_profile_path: Path,
+    stub_basic_info_with_teaching: dict[str, Any],
+) -> None:
+    """preserve_user_overrides=True여도 교직 필드는 USAINT 값으로 덮어쓴다."""
+    existing = UserProfile(
+        student_id="20240001",
+        teaching_certification=False,
+        teaching_major=None,
+    )
+    server.save_profile(existing)
+
+    result = await server.refresh_user_profile(preserve_user_overrides=True)
+    profile = result["profile"]
+
+    assert profile["teaching_certification"] is True
+    assert profile["teaching_major"] == "컴퓨터교육"
+    assert profile["student_id"] == "20240001"
+
+
+@pytest.mark.asyncio
+async def test_set_profile_teaching_certification_bool(
+    isolated_profile_path: Path,
+) -> None:
+    result = await server.set_user_profile("teaching_certification", True)
+    assert result["profile"]["teaching_certification"] is True
+
+    reloaded = await server.get_user_profile()
+    assert reloaded["profile"]["teaching_certification"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_profile_teaching_major(
+    isolated_profile_path: Path,
+) -> None:
+    result = await server.set_user_profile("teaching_major", "영어교육")
+    assert result["profile"]["teaching_major"] == "영어교육"
 
 
 @pytest.mark.asyncio
