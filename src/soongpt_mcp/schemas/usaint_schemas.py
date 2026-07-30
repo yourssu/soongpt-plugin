@@ -47,6 +47,16 @@ class BasicInfo(BaseModel):
     grade: int = Field(..., ge=1, le=4, description="학년 (1~4)")
     semester: int = Field(..., ge=1, le=8, description="재학 누적 학기 (1~8)")
     department: str = Field(..., description="주전공 학과명")
+    double_major: Optional[str] = Field(
+        None, description="복수전공 학과명 (rusaint.plural_major)"
+    )
+    connected_major: Optional[str] = Field(
+        None,
+        description="연계·융합전공 명 (rusaint.connected_major — 통합 제공)",
+    )
+    minor: Optional[str] = Field(
+        None, description="부전공 학과명 (rusaint.sub_major)"
+    )
 
 
 class GraduationRequirementItem(BaseModel):

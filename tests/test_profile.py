@@ -106,6 +106,49 @@ def test_from_basic_info_partial_dict() -> None:
     assert p.grade is None
 
 
+def test_from_basic_info_extracts_double_and_connected_major() -> None:
+    """SPR-35: BasicInfo에서 double_major / connected_major / minor 추출."""
+    basic = {
+        "year": 2023,
+        "grade": 3,
+        "semester": 5,
+        "department": "컴퓨터학부",
+        "double_major": "경영학과",
+        "connected_major": "AI·소프트웨어융합",
+        "minor": "철학과",
+    }
+    p = UserProfile.from_basic_info(basic)
+    assert p.double_major == "경영학과"
+    assert p.connected_major == "AI·소프트웨어융합"
+    assert p.minor == "철학과"
+
+
+def test_from_basic_info_majors_default_none() -> None:
+    """복수/연계/부전공 키가 없으면 None."""
+    p = UserProfile.from_basic_info(
+        {"year": 2024, "grade": 1, "semester": 1, "department": "컴퓨터학부"}
+    )
+    assert p.double_major is None
+    assert p.connected_major is None
+    assert p.minor is None
+
+
+def test_apply_partial_update_strips_double_major_whitespace() -> None:
+    p = UserProfile()
+    updated = p.apply_partial_update({"double_major": "  경영학과  "})
+    assert updated.double_major == "경영학과"
+
+
+def test_apply_partial_update_empty_string_clears_majors() -> None:
+    p = UserProfile(double_major="경영학과", connected_major="연계", minor="철학")
+    updated = p.apply_partial_update(
+        {"double_major": "   ", "connected_major": "", "minor": "  "}
+    )
+    assert updated.double_major is None
+    assert updated.connected_major is None
+    assert updated.minor is None
+
+
 def test_apply_partial_update_rejects_unknown_field() -> None:
     p = UserProfile()
     with pytest.raises(ValueError, match="알 수 없는 프로필 필드"):
@@ -166,6 +209,9 @@ def test_submission_fields_complete() -> None:
             "grade",
             "track",
             "entered_year",
+            "double_major",
+            "connected_major",
+            "minor",
         }
     )
 

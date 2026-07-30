@@ -39,6 +39,9 @@ SUBMISSION_FIELDS: frozenset[str] = frozenset(
         "grade",
         "track",
         "entered_year",
+        "double_major",
+        "connected_major",
+        "minor",
     }
 )
 
@@ -88,6 +91,16 @@ class UserProfile(BaseModel):
     grade: int | None = Field(None, description="학년 (1~6)", ge=1, le=6)
     track: str | None = Field(None, description="세부 전공/트랙 (선택)")
     entered_year: int | None = Field(None, description="입학 연도")
+    double_major: str | None = Field(
+        None, description="복수전공 학과 (USAINT plural_major)"
+    )
+    connected_major: str | None = Field(
+        None,
+        description="연계·융합전공 (USAINT connected_major — 연계/융합 통합)",
+    )
+    minor: str | None = Field(
+        None, description="부전공 학과 (USAINT sub_major)"
+    )
     updated_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="마지막 수정 시각",
@@ -105,7 +118,7 @@ class UserProfile(BaseModel):
             raise ValueError("학번은 숫자만 허용됩니다")
         return v
 
-    @field_validator("name", "college", "department", "track")
+    @field_validator("name", "college", "department", "track", "double_major", "connected_major", "minor")
     @classmethod
     def _strip_text(cls, v: str | None) -> str | None:
         if v is None:
@@ -117,9 +130,12 @@ class UserProfile(BaseModel):
     def from_basic_info(cls, basic_info: Any) -> UserProfile:
         """USAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
 
-        매핑: department, grade, entered_year만 추출. 나머지 필드는 None.
+        매핑: department, grade, entered_year, double_major, connected_major,
+        minor 추출. 나머지 필드는 None.
         참고: BasicInfo.year는 fetchers.fetch_basic_info에서 admission_year를
         저장한 필드 — 현재 입학연도를 가리킴 (기준 연도가 아님).
+        double_major/connected_major/minor는 SPR-35에서 추가 (rusaint.plural_major,
+        connected_major, sub_major — 모두 Optional).
         """
         if hasattr(basic_info, "model_dump"):
             data = basic_info.model_dump()
@@ -134,6 +150,9 @@ class UserProfile(BaseModel):
             department=data.get("department"),
             grade=data.get("grade"),
             entered_year=data.get("year"),
+            double_major=data.get("double_major"),
+            connected_major=data.get("connected_major"),
+            minor=data.get("minor"),
         )
 
     def apply_partial_update(self, updates: dict[str, Any]) -> UserProfile:
