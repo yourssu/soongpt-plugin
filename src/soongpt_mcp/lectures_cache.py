@@ -74,9 +74,7 @@ class LecturesCache(BaseModel):
     year: int
     semester: str
     groups: dict[str, LectureGroupEntry] = Field(default_factory=dict)
-    cached_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    cached_at: datetime
 
 
 def load_lectures_cache(
