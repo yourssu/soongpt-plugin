@@ -180,7 +180,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 - 3개 섹션 모두 채워지면 자동 완료 안내
 - 사용자가 "이대로 저장해" / "충분해" 선언 시 종료
-- 종료 시 `completion` 요약 표시 후, 다음 단계(`get_available_lectures`, 시간표 후보 생성) 안내
+- 종료 시 `completion` 요약 표시 후, 다음 단계(`/soongpt-available-lectures` 스킬, 시간표 후보 생성) 안내
 
 ## 비고
 
