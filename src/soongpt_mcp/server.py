@@ -344,8 +344,10 @@ async def set_user_profile(field: str, value: Any) -> dict:
     """프로필의 단일 필드를 부분 업데이트 후 저장된 전체 프로필 반환.
 
     허용 필드: student_id, name, college, department, grade (1~6),
-    track, entered_year, double_major, connected_major, minor. grade는 정수,
-    나머지는 문자열. 빈 문자열/None은 필드를 None으로 설정합니다.
+    track, entered_year, double_major, connected_major, minor,
+    teaching_certification (bool), teaching_major. grade는 정수,
+    teaching_certification은 bool, 나머지는 문자열. 빈 문자열/None은 필드를
+    None으로(또는 bool 필드의 경우 False로) 설정합니다.
     updated_at은 자동 갱신됩니다.
 
     프로필이 없으면 빈 프로필을 생성한 뒤 필드를 채웁니다.
@@ -365,10 +367,10 @@ async def set_user_profile(field: str, value: Any) -> dict:
 async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     """USAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
 
-    preserve_user_overrides=True(기본)면 USAINT가 제공하는 6개 필드
-    (department, grade, entered_year, double_major, connected_major, minor)를
-    항상 USAINT 값으로 덮어쓰고, 나머지 필드(student_id, name, college, track)는
-    기존 저장값을 보존합니다.
+    preserve_user_overrides=True(기본)면 USAINT가 제공하는 8개 필드
+    (department, grade, entered_year, double_major, connected_major, minor,
+    teaching_certification, teaching_major)를 항상 USAINT 값으로 덮어쓰고,
+    나머지 필드(student_id, name, college, track)는 기존 저장값을 보존합니다.
 
     False면 기존 프로필을 무시하고 USAINT 값만으로 새 프로필을 만듭니다
     (비-USAINT 필드는 모두 None으로 리셋).
@@ -380,7 +382,16 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     """
     basic_info, warnings = await _fetch_basic_info_via_session()
     fresh = UserProfile.from_basic_info(basic_info)
-    refreshed = ["department", "grade", "entered_year", "double_major", "connected_major", "minor"]
+    refreshed = [
+        "department",
+        "grade",
+        "entered_year",
+        "double_major",
+        "connected_major",
+        "minor",
+        "teaching_certification",
+        "teaching_major",
+    ]
 
     if not preserve_user_overrides:
         save_profile(fresh)
@@ -400,6 +411,8 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
             "double_major": fresh.double_major,
             "connected_major": fresh.connected_major,
             "minor": fresh.minor,
+            "teaching_certification": fresh.teaching_certification,
+            "teaching_major": fresh.teaching_major,
             "updated_at": datetime.now(timezone.utc),
         }
     )

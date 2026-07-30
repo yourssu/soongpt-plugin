@@ -104,6 +104,56 @@ def test_from_basic_info_partial_dict() -> None:
     assert p.entered_year == 2024
     assert p.department is None
     assert p.grade is None
+    assert p.teaching_certification is False
+    assert p.teaching_major is None
+
+
+def test_from_basic_info_extracts_teaching_fields() -> None:
+    """BasicInfo의 teaching_certification/teaching_major 매핑."""
+    basic = {
+        "year": 2024,
+        "grade": 2,
+        "semester": 3,
+        "department": "컴퓨터학부",
+        "teaching_certification": True,
+        "teaching_major": "컴퓨터교육",
+    }
+    p = UserProfile.from_basic_info(basic)
+    assert p.teaching_certification is True
+    assert p.teaching_major == "컴퓨터교육"
+
+
+def test_from_basic_info_teaching_defaults_when_absent() -> None:
+    """BasicInfo에 teaching 필드 없으면 기본값."""
+    basic = {"year": 2024, "grade": 2, "semester": 3, "department": "컴퓨터학부"}
+    p = UserProfile.from_basic_info(basic)
+    assert p.teaching_certification is False
+    assert p.teaching_major is None
+
+
+def test_teaching_certification_default_false() -> None:
+    assert UserProfile().teaching_certification is False
+
+
+def test_teaching_major_empty_string_becomes_none() -> None:
+    p = UserProfile(teaching_major="   ")
+    assert p.teaching_major is None
+
+
+def test_apply_partial_update_sets_teaching_fields() -> None:
+    p = UserProfile()
+    updated = p.apply_partial_update(
+        {"teaching_certification": True, "teaching_major": "컴퓨터교육"}
+    )
+    assert updated.teaching_certification is True
+    assert updated.teaching_major == "컴퓨터교육"
+    assert p.teaching_certification is False
+
+
+def test_apply_partial_update_empty_string_clears_teaching_major() -> None:
+    p = UserProfile(teaching_major="컴퓨터교육")
+    updated = p.apply_partial_update({"teaching_major": "  "})
+    assert updated.teaching_major is None
 
 
 def test_from_basic_info_extracts_double_and_connected_major() -> None:
@@ -212,6 +262,8 @@ def test_submission_fields_complete() -> None:
             "double_major",
             "connected_major",
             "minor",
+            "teaching_certification",
+            "teaching_major",
         }
     )
 

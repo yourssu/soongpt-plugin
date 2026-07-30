@@ -38,6 +38,9 @@ class Flags(BaseModel):
     doubleMajorDepartment: Optional[str] = Field(None, description="복수전공 학과명")
     minorDepartment: Optional[str] = Field(None, description="부전공 학과명")
     teaching: bool = Field(False, description="교직 이수 여부")
+    teachingMajor: Optional[str] = Field(
+        None, description="교직 이수 전공명 (예: '컴퓨터교육'). teaching=False면 None"
+    )
 
 
 class BasicInfo(BaseModel):
@@ -56,6 +59,13 @@ class BasicInfo(BaseModel):
     )
     minor: Optional[str] = Field(
         None, description="부전공 학과명 (rusaint.sub_major)"
+    )
+    teaching_certification: bool = Field(
+        False, description="교직이수 여부 (rusaint teaching_major.major_name 존재 여부)"
+    )
+    teaching_major: Optional[str] = Field(
+        None,
+        description="교직 이수 전공명 (예: '컴퓨터교육'). teaching_certification=False면 None",
     )
 
 
