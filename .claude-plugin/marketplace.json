@@ -1,0 +1,12 @@
+{
+  "name": "soongpt-mcp",
+  "description": "숭실대 uSaint MCP 서버 + 시간표/졸업요건 스킬 마켓플레이스",
+  "owner": { "name": "soongpt-mcp contributors" },
+  "plugins": [
+    {
+      "name": "soongpt-mcp",
+      "source": "./",
+      "description": "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements"
+    }
+  ]
+}
