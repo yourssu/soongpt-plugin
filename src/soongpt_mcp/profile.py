@@ -21,14 +21,11 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .semester import current_academic_period
-
-if TYPE_CHECKING:
-    from soongpt_mcp.services.course_catalog import LectureCategoryRequest
 
 logger = logging.getLogger(__name__)
 
@@ -185,23 +182,6 @@ def load_profile(path: Path | None = None) -> UserProfile | None:
     except OSError as exc:
         logger.warning("프로필 파일 읽기 실패 (%s): %s", source, exc)
         return None
-
-
-def build_category_requests(profile: UserProfile) -> list[LectureCategoryRequest]:
-    """사용자 프로필 기반으로 조회할 카테고리 요청 목록 생성.
-
-    TODO(사용자 지정): 어떤 카테고리를 부를지 후속 PR에서 결정. 예:
-    - major: profile.college, profile.department, profile.major 필요
-    - optional_elective: 사용자 관심 분야 (별도 입력 필드 필요)
-    - chapel: lecture_name 지정
-    - education: 교직이수자만 (profile 필드 추가 필요)
-    - graduated: profile.college, profile.department
-
-    UserProfile 스키마를 건드리지 않으려면 별도 설정 파일/툴로 관심 분야를
-    받아야 함. 이 뼈대에서는 빈 리스트를 반환하며, get_available_lectures는
-    빈 groups를 정상 반환함.
-    """
-    return []
 
 
 def save_profile(profile: UserProfile, path: Path | None = None) -> Path:

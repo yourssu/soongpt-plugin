@@ -12,6 +12,13 @@ from .graduation import (
     load_graduation_cache,
     save_graduation_cache,
 )
+from .lectures_cache import (
+    LectureGroupEntry,
+    LecturesCache,
+    is_lectures_cache_fresh,
+    load_lectures_cache as _load_lectures_cache_file,
+    save_lectures_cache as _save_lectures_cache_file,
+)
 from .interview import (
     SECTION_NAMES as INTERVIEW_SECTION_NAMES,
     InterviewResult,
@@ -22,7 +29,6 @@ from .interview import (
 from .profile import (
     SUBMISSION_FIELDS,
     UserProfile,
-    build_category_requests,
     load_profile,
     save_profile,
 )
@@ -188,58 +194,109 @@ async def find_lectures(
 
 
 @mcp.tool()
-async def get_available_lectures(year: int, semester: str) -> dict:
-    """저장된 사용자 프로필 기반으로 이번 학기에 들을 수 있는 과목을 통합 조회합니다.
+async def list_optional_elective_categories(year: int, semester: str) -> dict:
+    """숭실대 USAINT 강의시간표에서 교양선택 분야 목록을 가져옵니다.
 
-    내부적으로 profile → build_category_requests → 여러 카테고리 병렬 fetch →
-    {category_type: {lectures, count, error}} 그룹화 형태로 반환.
-
-    현재 뼈대 단계로 build_category_requests가 빈 리스트를 반환하므로
-    groups도 빈 객체로 나옵니다. 카테고리 스펙은 후속 PR에서 채워집니다.
+    분야명은 학기/학번에 따라 다름 (예: "[‘23이후]과학·기술").
+    해당 학기에 개설된 모든 교양선택 분야를 반환하므로, 사용자의 입학연도
+    (profile.entered_year) 기준으로 '[‘NN이후]'/'[‘NN이전]' 필터링은
+    호출자(스킬/LLM)가 처리해야 합니다.
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
-    반환: { year, semester, groups: {category_type: {lectures, count, error}},
-            totalCount, fetchTime, requestedCategories }
+    반환: { categories: [str, ...], count, fetchTime }
 
-    사전 조건: set_user_profile 또는 refresh_user_profile로 프로필이 저장되어 있어야 함.
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
-    profile = load_profile()
-    if profile is None:
-        raise RuntimeError(
-            "저장된 프로필이 없습니다. set_user_profile 또는 refresh_user_profile로 "
-            "먼저 프로필을 설정하세요."
-        )
-
-    requests = build_category_requests(profile)
-
-    # 빈 requests 분기: session_manager를 거치지 않기 위한 진입점 최적화.
-    # course_catalog.fetch_available_lectures에도 동일한 분기가 있지만,
-    # 여기서 사로잡으면 캐시된 세션조차 조회하지 않고 즉시 반환.
-    if not requests:
-        return {
-            "year": year,
-            "semester": semester,
-            "groups": {},
-            "totalCount": 0,
-            "fetchTime": "0.00s",
-            "requestedCategories": [],
-        }
-
     service = RusaintService()
 
     async def call(session_json: str):
-        return await service.get_available_lectures(
-            session_json,
-            year=year,
-            semester=semester,
-            requests=requests,
+        return await service.find_optional_elective_categories(
+            session_json, year=year, semester=semester
         )
 
     result = await _run_with_session(call)
     return _jsonify(result)
+
+
+@mcp.tool()
+async def load_lectures_cache(year: int, semester: str) -> dict:
+    """저장된 강의 캐시 로드. 스킬 진입 시 가장 먼저 호출해 캐시 히트 여부 확인.
+
+    응답의 `_cache.source`:
+    - "cache": 캐시 hit (7일 이내). groups 사용 가능
+    - "stale": 파일은 있으나 7일 경과. 스킬이 갱신 필요
+    - "miss": 파일 없음. 스킬이 find_lectures로 채워야 함
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { year, semester, groups: {group_key: {category_type, params, lectures, count, error}},
+            count, _cache: {source, cached_at, age_days} }
+    """
+    cache, cached_at = _load_lectures_cache_file(year, semester)
+    now = datetime.now(timezone.utc)
+    if cache is None or cached_at is None:
+        return {
+            "year": year,
+            "semester": semester,
+            "groups": {},
+            "count": 0,
+            "_cache": {"source": "miss", "cached_at": None, "age_days": None},
+        }
+
+    age_days = (now - cached_at).days
+    source = "cache" if is_lectures_cache_fresh(cached_at, now) else "stale"
+    return {
+        "year": cache.year,
+        "semester": cache.semester,
+        "groups": _jsonify(cache.groups),
+        "count": len(cache.groups),
+        "_cache": {
+            "source": source,
+            "cached_at": cached_at.isoformat(),
+            "age_days": age_days,
+        },
+    }
+
+
+@mcp.tool()
+async def save_lectures_cache(year: int, semester: str, groups: dict) -> dict:
+    """강의 캐시 저장. 스킬이 find_lectures N회 결과를 group_key별로 취합해 전달.
+
+    groups 형태 (각 값은 LectureGroupEntry 호환 dict):
+    {
+      "major_primary": {"category_type": "major", "params": {...}, "lectures": [...], "count": N, "error": null},
+      "optional_elective_<분야명>": {"category_type": "optional_elective", "params": {...}, ...},
+      ...
+    }
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { year, semester, count, saved_at, path }
+    """
+    parsed: dict[str, LectureGroupEntry] = {}
+    for key, entry in groups.items():
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f"groups[{key!r}]는 dict여야 함: {type(entry).__name__}"
+            )
+        parsed[key] = LectureGroupEntry.model_validate(entry)
+
+    cache = LecturesCache(
+        year=year,
+        semester=semester,
+        groups=parsed,
+        cached_at=datetime.now(timezone.utc),
+    )
+    target = _save_lectures_cache_file(cache)
+    return {
+        "year": cache.year,
+        "semester": cache.semester,
+        "count": len(cache.groups),
+        "saved_at": cache.cached_at.isoformat(),
+        "path": str(target),
+    }
 
 
 def run() -> None:

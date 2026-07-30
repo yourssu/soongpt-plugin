@@ -20,10 +20,6 @@ from soongpt_mcp.schemas.usaint_schemas import BasicInfo, UsaintSnapshotResponse
 from soongpt_mcp.services import fetchers
 from soongpt_mcp.services import session as session_module
 from soongpt_mcp.services.constants import SEMESTER_TYPE_MAP
-from soongpt_mcp.services.course_catalog import (
-    LectureCategoryRequest,
-    fetch_available_lectures,
-)
 from soongpt_mcp.services.exceptions import (
     SSOTokenError,
     RusaintConnectionError,
@@ -203,22 +199,15 @@ class RusaintService:
             include_details=include_details,
         )
 
-    async def get_available_lectures(
+    async def find_optional_elective_categories(
         self,
         session_json: str,
         year: int,
         semester: str,
-        requests: list[LectureCategoryRequest],
-        include_details: bool = False,
     ) -> dict:
-        """들을 수 있는 과목 통합 조회. → course_catalog.fetch_available_lectures 위임."""
-        return await fetch_available_lectures(
-            session_json,
-            year,
-            semester,
-            requests,
-            service=self._course_schedule,
-            include_details=include_details,
+        """교양선택 분야 목록 조회. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.find_optional_elective_categories(
+            session_json, year, semester
         )
 
     async def fetch_basic_info(
