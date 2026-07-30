@@ -133,16 +133,22 @@ async def fetch_all_course_data_parallel(
     course_grades_app1,
     course_grades_app2,
     semester_type_map: Dict[Any, str],
-) -> tuple[list[TakenCourse], list[str], list[str]]:
+) -> tuple[list[TakenCourse], list[str], dict[str, str], list[str]]:
     """
     2개의 CourseGradesApplication으로 학기를 나눠서 병렬 조회합니다.
+
+    반환: (taken_courses, low_grade_codes, code_to_name, warnings).
+    code_to_name은 rusaint classes() 응답의 class_name을 그대로 모은 매핑 —
+    실제 수강한 과목만 포함하며, find_lectures/lectures_cache 대조 없이도
+    과목 코드 → 강의명을 바로 얻을 수 있음 (재수강 대체과목 추천 코드처럼
+    실제 수강 이력이 없는 코드는 포함되지 않음).
     """
     try:
         semesters = await course_grades_app1.semesters(rusaint.CourseType.BACHELOR)
 
         if not semesters:
             logger.warning("수강 이력 없음 (빈 학기 목록) — 새내기 가능성")
-            return [], [], ["NO_COURSE_HISTORY"]
+            return [], [], {}, ["NO_COURSE_HISTORY"]
 
         if len(semesters) <= 1:
             semesters_group1 = semesters
@@ -237,7 +243,7 @@ async def fetch_all_course_data_parallel(
                 low_grade_codes.append(replacement_code)
                 low_grade_code_set.add(replacement_code)
 
-        return taken_courses, low_grade_codes, []
+        return taken_courses, low_grade_codes, code_to_name, []
 
     except Exception as e:
         logger.error(f"성적 관련 데이터 조회 실패 (병렬): {type(e).__name__}")

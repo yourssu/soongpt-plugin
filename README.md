@@ -17,7 +17,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 | 도구 | 반환 데이터 | 소요 시간 |
 |---|---|---|
-| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목, 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 | ~9초 |
+| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 | ~9초 |
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |

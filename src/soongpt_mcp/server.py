@@ -105,7 +105,9 @@ async def _run_with_session(
 async def get_usaint_snapshot() -> dict:
     """숭실대 USAINT에서 학적/수강/성적 데이터를 가져옵니다 (가공 전 raw).
 
-    반환: basicInfo, takenCourses, lowGradeSubjectCodes, flags, warnings.
+    반환: basicInfo, takenCourses, lowGradeSubjectCodes, subjectNames, flags, warnings.
+    subjectNames는 과목 코드 → 강의명 매핑 (실제 수강한 과목만 포함, 재수강 대체과목
+    추천 코드처럼 수강 이력이 없는 코드는 미포함 — 이 경우 코드를 그대로 사용).
     졸업사정표는 별도 도구 get_graduation_status를 사용하세요.
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
