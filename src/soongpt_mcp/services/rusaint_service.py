@@ -12,7 +12,6 @@ student_id/s_token은 더 이상 사용하지 않습니다.
 import asyncio
 import logging
 import time
-from typing import List, Optional, Tuple
 
 import rusaint
 
@@ -21,10 +20,10 @@ from soongpt_mcp.services import fetchers
 from soongpt_mcp.services import session as session_module
 from soongpt_mcp.services.constants import SEMESTER_TYPE_MAP
 from soongpt_mcp.services.exceptions import (
-    SSOTokenError,
     RusaintConnectionError,
-    RusaintTimeoutError,
     RusaintInternalError,
+    RusaintTimeoutError,
+    SSOTokenError,
 )
 from soongpt_mcp.services.rusaint_academic_service import RusaintAcademicService
 from soongpt_mcp.services.rusaint_course_schedule_service import (
@@ -63,7 +62,7 @@ class RusaintService:
         start_time = time.time()
         logger.info("유세인트 데이터 조회 시작: [session_json]")
 
-        sessions: List[Tuple[str, Optional[rusaint.USaintSession]]] = []
+        sessions: list[tuple[str, rusaint.USaintSession | None]] = []
 
         try:
             session_start = time.time()
@@ -96,7 +95,7 @@ class RusaintService:
                 )
             except Exception as e:
                 logger.error(
-                    f"Application 생성 실패: {type(e).__name__} - {str(e)}",
+                    f"Application 생성 실패: {type(e).__name__} - {e!s}",
                     exc_info=True,
                 )
                 await session_module.cleanup_sessions(sessions)
@@ -139,20 +138,20 @@ class RusaintService:
         except rusaint.RusaintError as e:
             logger.error(
                 f"Rusaint 오류 ([session_json]): {type(e).__name__}\n"
-                f"에러 메시지: {str(e)}",
+                f"에러 메시지: {e!s}",
                 exc_info=True,
             )
-            raise RusaintInternalError(f"유세인트 데이터 조회 중 오류: {type(e).__name__} - {str(e)}")
+            raise RusaintInternalError(f"유세인트 데이터 조회 중 오류: {type(e).__name__} - {e!s}")
         except asyncio.TimeoutError:
             logger.error("유세인트 연결 시간 초과 ([session_json])")
             raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.")
         except Exception as e:
             logger.error(
                 f"유세인트 데이터 조회 중 오류 발생 ([session_json]): {type(e).__name__}\n"
-                f"에러 메시지: {str(e)}",
+                f"에러 메시지: {e!s}",
                 exc_info=True,
             )
-            raise RusaintInternalError(f"예기치 않은 오류: {type(e).__name__} - {str(e)}")
+            raise RusaintInternalError(f"예기치 않은 오류: {type(e).__name__} - {e!s}")
         finally:
             await session_module.cleanup_sessions(sessions)
 
@@ -176,12 +175,12 @@ class RusaintService:
         year: int,
         semester: str,
         category_type: str,
-        collage: Optional[str] = None,
-        department: Optional[str] = None,
-        major: Optional[str] = None,
-        lecture_name: Optional[str] = None,
-        category: Optional[str] = None,
-        keyword: Optional[str] = None,
+        collage: str | None = None,
+        department: str | None = None,
+        major: str | None = None,
+        lecture_name: str | None = None,
+        category: str | None = None,
+        keyword: str | None = None,
         include_details: bool = False,
     ) -> dict:
         """강의시간표 검색. → CourseSchedule 서비스 위임."""
@@ -208,6 +207,40 @@ class RusaintService:
         """교양선택 분야 목록 조회. → CourseSchedule 서비스 위임."""
         return await self._course_schedule.find_optional_elective_categories(
             session_json, year, semester
+        )
+
+    async def build_department_map(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> dict:
+        """학과-단과대 매핑 빌드. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.build_department_map(
+            session_json, year=year, semester=semester
+        )
+
+    async def find_collages(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> list[str]:
+        """단과대 목록 조회. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.find_collages(
+            session_json, year=year, semester=semester
+        )
+
+    async def find_departments(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        collage: str,
+    ) -> list[str]:
+        """특정 단과대의 학과(부) 목록. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.find_departments(
+            session_json, year=year, semester=semester, collage=collage
         )
 
     async def fetch_basic_info(

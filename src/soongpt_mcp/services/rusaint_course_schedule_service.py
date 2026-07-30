@@ -7,22 +7,22 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import rusaint
 
 from soongpt_mcp.services import session as session_module
 from soongpt_mcp.services.exceptions import (
-    SSOTokenError,
     RusaintConnectionError,
-    RusaintTimeoutError,
     RusaintInternalError,
+    RusaintTimeoutError,
+    SSOTokenError,
 )
 
 logger = logging.getLogger(__name__)
 
 
-SEMESTER_MAP: Dict[str, rusaint.SemesterType] = {
+SEMESTER_MAP: dict[str, rusaint.SemesterType] = {
     "1": rusaint.SemesterType.ONE,
     "summer": rusaint.SemesterType.SUMMER,
     "2": rusaint.SemesterType.TWO,
@@ -55,14 +55,14 @@ class RusaintCourseScheduleService:
         year: int,
         semester: str,
         category_type: str,
-        collage: Optional[str] = None,
-        department: Optional[str] = None,
-        major: Optional[str] = None,
-        lecture_name: Optional[str] = None,
-        category: Optional[str] = None,
-        keyword: Optional[str] = None,
+        collage: str | None = None,
+        department: str | None = None,
+        major: str | None = None,
+        lecture_name: str | None = None,
+        category: str | None = None,
+        keyword: str | None = None,
         include_details: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         강의시간표에서 강의 검색.
 
@@ -105,7 +105,7 @@ class RusaintCourseScheduleService:
             year, semester, category_type, include_details,
         )
 
-        sessions: List[Tuple[str, Optional[rusaint.USaintSession]]] = []
+        sessions: list[tuple[str, rusaint.USaintSession | None]] = []
 
         try:
             session_start = time.time()
@@ -149,21 +149,217 @@ class RusaintCourseScheduleService:
             raise
         except rusaint.RusaintError as e:
             logger.error(
-                f"Rusaint 오류: {type(e).__name__} - {str(e)}",
+                f"Rusaint 오류: {type(e).__name__} - {e!s}",
                 exc_info=True,
             )
             raise RusaintInternalError(
-                f"유세인트 강의시간표 조회 중 오류: {type(e).__name__} - {str(e)}"
+                f"유세인트 강의시간표 조회 중 오류: {type(e).__name__} - {e!s}"
             )
         except asyncio.TimeoutError:
             logger.error("유세인트 연결 시간 초과")
             raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.")
         except Exception as e:
             logger.error(
-                f"유세인트 강의시간표 조회 중 예기치 않은 오류: {type(e).__name__} - {str(e)}",
+                f"유세인트 강의시간표 조회 중 예기치 않은 오류: {type(e).__name__} - {e!s}",
                 exc_info=True,
             )
-            raise RusaintInternalError(f"예기치 않은 오류: {type(e).__name__} - {str(e)}")
+            raise RusaintInternalError(f"예기치 않은 오류: {type(e).__name__} - {e!s}")
+        finally:
+            await session_module.cleanup_sessions(sessions)
+
+    async def build_department_map(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> dict[str, Any]:
+        """단과대를 순회하며 {학과명: 단과대} 매핑을 한 번에 빌드.
+
+        단과대마다 _run_with_session을 타면 세션 복원 비용이 N배 발생하므로,
+        빌드는 단일 세션 컨텍스트에서 collages() + 모든 departments()를 묶어 수행.
+        """
+        start_time = time.time()
+
+        semester_enum = SEMESTER_MAP.get(semester.lower())
+        if semester_enum is None:
+            raise ValueError(
+                f"지원하지 않는 semester: {semester}. "
+                "지원 값: 1, 2, summer, winter"
+            )
+
+        logger.info(
+            "학과-단과대 매핑 빌드 시작: year=%d semester=%s", year, semester
+        )
+
+        sessions: list[tuple[str, rusaint.USaintSession | None]] = []
+        try:
+            session_obj = await session_module.create_session_from_json(session_json)
+            sessions = [("course_schedule", session_obj)]
+            app = await session_module.get_course_schedule_app(session_obj)
+
+            collages = await app.collages(year, semester_enum)
+            logger.info(
+                "단과대 %d개 조회 완료 (%.2f초)",
+                len(collages),
+                time.time() - start_time,
+            )
+
+            mapping: dict[str, str] = {}
+            for collage in collages:
+                departments = await app.departments(
+                    year, semester_enum, collage
+                )
+                for dept in departments:
+                    mapping[dept] = collage
+
+            total = time.time() - start_time
+            logger.info(
+                "학과-단과대 매핑 빌드 완료: 학과 %d개 / 단과대 %d개 (%.2f초)",
+                len(mapping),
+                len(collages),
+                total,
+            )
+            return {
+                "mapping": mapping,
+                "collages": list(collages),
+                "department_count": len(mapping),
+                "collage_count": len(collages),
+                "fetchTime": f"{total:.2f}s",
+            }
+
+        except ValueError:
+            raise
+        except (
+            SSOTokenError,
+            RusaintConnectionError,
+            RusaintTimeoutError,
+            RusaintInternalError,
+        ):
+            raise
+        except rusaint.RusaintError as e:
+            logger.error(
+                "Rusaint 오류: %s - %s", type(e).__name__, str(e), exc_info=True
+            )
+            raise RusaintInternalError(
+                f"학과-단과대 매핑 빌드 중 오류: {type(e).__name__} - {e!s}"
+            )
+        except asyncio.TimeoutError:
+            logger.error("유세인트 연결 시간 초과 (매핑 빌드)")
+            raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.")
+        except Exception as e:
+            logger.error(
+                "매핑 빌드 중 예기치 않은 오류: %s - %s",
+                type(e).__name__,
+                str(e),
+                exc_info=True,
+            )
+            raise RusaintInternalError(
+                f"예기치 않은 오류: {type(e).__name__} - {e!s}"
+            )
+        finally:
+            await session_module.cleanup_sessions(sessions)
+
+    async def find_collages(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> list[str]:
+        """선택 학기 기준 단과대 목록 조회 (학과-단과대 매핑 빌드용)."""
+        return await self._fetch_list(
+            session_json,
+            year,
+            semester,
+            lambda app, y, sem: app.collages(y, sem),
+            label="collages",
+        )
+
+    async def find_departments(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        collage: str,
+    ) -> list[str]:
+        """특정 단과대의 학과(부) 목록 조회 (학과-단과대 매핑 빌드용)."""
+        if not collage or not str(collage).strip():
+            raise ValueError("collage 파라미터가 필요합니다")
+
+        async def _call(
+            app: rusaint.CourseScheduleApplication,
+            y: int,
+            sem: rusaint.SemesterType,
+        ) -> list[str]:
+            return await app.departments(y, sem, collage)
+
+        return await self._fetch_list(
+            session_json,
+            year,
+            semester,
+            _call,
+            label=f"departments(collage={collage!r})",
+        )
+
+    async def _fetch_list(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        call: Any,
+        label: str,
+    ) -> list[str]:
+        """세션 복원 → CourseScheduleApplication 생성 → 단일 목록 호출 공통 흐름."""
+        start_time = time.time()
+
+        semester_enum = SEMESTER_MAP.get(semester.lower())
+        if semester_enum is None:
+            raise ValueError(
+                f"지원하지 않는 semester: {semester}. "
+                "지원 값: 1, 2, summer, winter"
+            )
+
+        logger.info("유세인트 %s 조회 시작: year=%d semester=%s", label, year, semester)
+
+        sessions: list[tuple[str, rusaint.USaintSession | None]] = []
+        try:
+            session_obj = await session_module.create_session_from_json(session_json)
+            sessions = [("course_schedule", session_obj)]
+            app = await session_module.get_course_schedule_app(session_obj)
+            result = await call(app, year, semester_enum)
+            total = time.time() - start_time
+            logger.info("유세인트 %s 조회 완료: %d건 (%.2f초)", label, len(result), total)
+            return result
+
+        except ValueError:
+            raise
+        except (
+            SSOTokenError,
+            RusaintConnectionError,
+            RusaintTimeoutError,
+            RusaintInternalError,
+        ):
+            raise
+        except rusaint.RusaintError as e:
+            logger.error(
+                "Rusaint 오류: %s - %s", type(e).__name__, str(e), exc_info=True
+            )
+            raise RusaintInternalError(
+                f"유세인트 {label} 조회 중 오류: {type(e).__name__} - {e!s}"
+            )
+        except asyncio.TimeoutError:
+            logger.error("유세인트 연결 시간 초과 (%s)", label)
+            raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.")
+        except Exception as e:
+            logger.error(
+                "유세인트 %s 조회 중 예기치 않은 오류: %s - %s",
+                label,
+                type(e).__name__,
+                str(e),
+                exc_info=True,
+            )
+            raise RusaintInternalError(
+                f"예기치 않은 오류: {type(e).__name__} - {e!s}"
+            )
         finally:
             await session_module.cleanup_sessions(sessions)
 
@@ -247,12 +443,12 @@ class RusaintCourseScheduleService:
     def _build_category(
         self,
         category_type: str,
-        collage: Optional[str],
-        department: Optional[str],
-        major: Optional[str],
-        lecture_name: Optional[str],
-        category: Optional[str],
-        keyword: Optional[str],
+        collage: str | None,
+        department: str | None,
+        major: str | None,
+        lecture_name: str | None,
+        category: str | None,
+        keyword: str | None,
     ) -> rusaint.LectureCategory:
         builder = rusaint.LectureCategoryBuilder()
 
@@ -293,7 +489,7 @@ class RusaintCourseScheduleService:
 
         raise ValueError(f"처리되지 않은 category_type: {category_type}")
 
-    def _require(self, category_type: str, **fields: Optional[str]) -> None:
+    def _require(self, category_type: str, **fields: str | None) -> None:
         missing = [k for k, v in fields.items() if v is None or str(v).strip() == ""]
         if missing:
             raise ValueError(
@@ -301,7 +497,7 @@ class RusaintCourseScheduleService:
             )
 
     @staticmethod
-    def _dump_lecture(lec: Any) -> Dict[str, Any]:
+    def _dump_lecture(lec: Any) -> dict[str, Any]:
         """Lecture 객체를 JSON 직렬화 가능한 dict로 변환."""
         if hasattr(lec, "model_dump"):
             return lec.model_dump(mode="json")
@@ -323,7 +519,7 @@ class RusaintCourseScheduleService:
             "syllabus_link": getattr(lec, "syllabus", None),
         }
 
-    def _dump_detailed(self, item: Any) -> Dict[str, Any]:
+    def _dump_detailed(self, item: Any) -> dict[str, Any]:
         """DetailedLecture (lecture + detail + syllabus)를 dict로 변환."""
         lecture = getattr(item, "lecture", None)
         base = self._dump_lecture(lecture) if lecture is not None else {}
@@ -337,7 +533,7 @@ class RusaintCourseScheduleService:
         return base
 
     @staticmethod
-    def _dump_optional_model(obj: Any) -> Optional[Dict[str, Any]]:
+    def _dump_optional_model(obj: Any) -> dict[str, Any] | None:
         if obj is None:
             return None
         if hasattr(obj, "model_dump"):

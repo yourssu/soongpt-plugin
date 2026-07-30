@@ -7,6 +7,17 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from .department_map import (
+    DepartmentMap,
+    is_department_map_fresh,
+    load_bundled_department_map,
+)
+from .department_map import (
+    load_department_map as load_dept_map_cache,
+)
+from .department_map import (
+    save_department_map as save_dept_map_cache,
+)
 from .graduation import (
     is_cache_fresh,
     load_graduation_cache,
@@ -21,10 +32,14 @@ from .lectures_cache import (
 )
 from .interview import (
     SECTION_NAMES as INTERVIEW_SECTION_NAMES,
+)
+from .interview import (
     InterviewResult,
-    list_interview_files as _list_interview_files,
     load_interview,
     save_interview,
+)
+from .interview import (
+    list_interview_files as _list_interview_files,
 )
 from .profile import (
     SUBMISSION_FIELDS,
@@ -32,6 +47,7 @@ from .profile import (
     load_profile,
     save_profile,
 )
+from .semester import current_academic_period
 from .services.exceptions import SSOTokenError
 from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
@@ -302,6 +318,81 @@ async def save_lectures_cache(year: int, semester: str, groups: dict) -> dict:
 def run() -> None:
     """Run the MCP server on stdio (default transport)."""
     mcp.run()
+
+
+@mcp.tool()
+async def load_department_map(year: int, force_refresh: bool = False) -> dict:
+    """학과-단과대 매핑 캐시. 복수/부전공 학과의 단과대를 자동으로 찾기 위해 사용.
+
+    3-tier 로딩 순서 (force_refresh=False일 때):
+    1. 로컬 캐시 — 이전 호출에서 빌드해 둔 파일 (즉시)
+    2. 번들 seed — 패키지에 커밋된 정적 파일 (즉시, 메인테이너가 연 1회 갱신)
+    3. 자동 빌드 — USAINT에서 실시간 fetch (10~20초, 로컬 캐시에 저장)
+
+    학과 신설/통폐합이 의심되면 force_refresh=True로 강제 재빌드.
+    semester는 오늘 날짜 기준 현재 학기(1학기/2학기)를 자동 사용.
+
+    반환: {year, semester, mapping, count, _cache: {source, built_at, age_days}}.
+    source="cache" | "bundled" | "fresh" 로 데이터 출처 표시.
+
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
+    """
+    now = datetime.now(timezone.utc)
+
+    if not force_refresh:
+        cached, built_at = load_dept_map_cache(year)
+        if (
+            cached is not None
+            and built_at is not None
+            and is_department_map_fresh(built_at, now=now)
+        ):
+            return _format_dept_map_response(cached, "cache", built_at, now)
+
+        bundled = load_bundled_department_map(year)
+        if bundled is not None and is_department_map_fresh(
+            bundled.built_at, now=now
+        ):
+            return _format_dept_map_response(bundled, "bundled", bundled.built_at, now)
+
+    _, semester = current_academic_period()
+    service = RusaintService()
+
+    async def call(session_json: str):
+        return await service.build_department_map(
+            session_json, year=year, semester=semester
+        )
+
+    built = await _run_with_session(call)
+    dm = DepartmentMap(
+        year=year,
+        semester=semester,
+        mapping=built["mapping"],
+        built_at=now,
+    )
+    save_dept_map_cache(dm)
+    return _format_dept_map_response(dm, "fresh", dm.built_at, now)
+
+
+def _format_dept_map_response(
+    dm: DepartmentMap,
+    source: str,
+    built_at: datetime,
+    now: datetime,
+) -> dict:
+    """load_department_map 응답 포맷팅 (cache/bundled/fresh 공통)."""
+    age_days = (now - built_at).days
+    return {
+        "year": dm.year,
+        "semester": dm.semester,
+        "mapping": dm.mapping,
+        "count": len(dm.mapping),
+        "_cache": {
+            "source": source,
+            "built_at": built_at.isoformat(),
+            "age_days": age_days,
+        },
+    }
 
 
 # User Profile Tools
