@@ -28,32 +28,112 @@ _PAGE = """\
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>soongpt-mcp 로그인</title>
+<title>숭실대 uSaint 로그인</title>
 <style>
-:root {{ color-scheme: light dark; }}
-body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-       max-width: 420px; margin: 60px auto; padding: 0 20px; color: #111; }}
-h1 {{ font-size: 1.4rem; margin-bottom: .4rem; }}
-p.note {{ color: #666; font-size: .9rem; margin-top: 0; }}
-label {{ display: block; margin: 1rem 0 .3rem; font-size: .9rem; }}
+:root {{
+  color-scheme: light dark;
+  --brand-primary: #6b5cff;
+  --brand-secondary: #5736f5;
+  --text-default: #292929;
+  --text-muted: #4b505d;
+  --text-subtle: #686868;
+  --text-placeholder: #cfcfcf;
+  --bg-page: #f7f8f8;
+  --bg-brand-light: #ecefff;
+  --bg-card: #ffffff;
+  --border-default: #e3e4e8;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}}
+* {{ box-sizing: border-box; }}
+body {{
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  background: linear-gradient(180deg, var(--bg-brand-light) 0%, var(--bg-page) 45%);
+  color: var(--text-default);
+}}
+.card {{
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-card);
+  border-radius: var(--radius-xl);
+  padding: 2.4rem 2rem;
+  box-shadow: 0 2px 4px rgba(41,41,41,.04), 0 12px 32px rgba(107,92,255,.12);
+}}
+.logo {{ display: flex; justify-content: center; margin-bottom: 1.2rem; }}
+.logo svg {{ width: 42px; height: 56px; }}
+h1 {{ font-size: 1.3rem; font-weight: 700; text-align: center; margin: 0 0 .5rem; color: var(--text-default); }}
+p.note {{ color: var(--text-subtle); font-size: .85rem; line-height: 1.5; text-align: center; margin: 0 0 1.6rem; }}
+label {{ display: block; margin: 1.1rem 0 .4rem; font-size: .82rem; font-weight: 600; color: var(--text-muted); }}
 input[type=text], input[type=password] {{
-    width: 100%; padding: .6rem; font-size: 1rem;
-    box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; }}
-button {{ margin-top: 1.4rem; width: 100%; padding: .8rem; font-size: 1rem;
-    background: #2563eb; color: white; border: 0; border-radius: 6px; cursor: pointer; }}
-button:hover {{ background: #1d4ed8; }}
-.error {{ color: #b91c1c; margin-top: 1rem; font-size: .9rem; }}
+  width: 100%; padding: .75rem .85rem; font-size: 1rem;
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  background: var(--bg-page); color: var(--text-default);
+  transition: border-color .15s, box-shadow .15s;
+}}
+input[type=text]::placeholder, input[type=password]::placeholder {{ color: var(--text-placeholder); }}
+input[type=text]:focus, input[type=password]:focus {{
+  outline: none; border-color: var(--brand-primary); background: #fff;
+  box-shadow: 0 0 0 3px var(--bg-brand-light);
+}}
+button {{
+  margin-top: 1.6rem; width: 100%; padding: .85rem; font-size: 1rem; font-weight: 700;
+  background: var(--brand-primary); color: #fff; border: 0; border-radius: var(--radius-md);
+  cursor: pointer; transition: background .15s;
+}}
+button:hover {{ background: var(--brand-secondary); }}
+button:active {{ transform: translateY(1px); }}
+.error {{
+  margin-top: 1rem; padding: .7rem .85rem; border-radius: var(--radius-md);
+  background: #fdecec; color: #b91c1c; font-size: .85rem; line-height: 1.4;
+}}
 .success {{ text-align: center; }}
-.success h1 {{ color: #16a34a; }}
+.success .check {{
+  width: 52px; height: 52px; margin: 0 auto 1rem; border-radius: 50%;
+  background: var(--bg-brand-light); color: var(--brand-primary);
+  display: flex; align-items: center; justify-content: center; font-size: 1.6rem;
+}}
+.success h1 {{ margin-bottom: .4rem; }}
+.success p {{ color: var(--text-subtle); font-size: .85rem; }}
+.local-badge {{
+  display: flex; align-items: center; justify-content: center; gap: .35rem;
+  margin: 0 0 1.2rem; padding: .3rem .7rem; border-radius: 999px;
+  background: var(--bg-brand-light); color: var(--brand-secondary);
+  font-size: .72rem; font-weight: 600; text-align: center;
+}}
 @media (prefers-color-scheme: dark) {{
-    body {{ color: #eee; }}
-    p.note {{ color: #999; }}
-    input[type=text], input[type=password] {{ background: #1f2937; border-color: #374151; color: #eee; }}
+  body {{ background: linear-gradient(180deg, #1e1b33 0%, #121214 45%); color: #f1f1f3; }}
+  .card {{ background: #1c1d22; box-shadow: 0 12px 32px rgba(0,0,0,.4); }}
+  h1 {{ color: #f1f1f3; }}
+  p.note, .success p {{ color: #9a9ea8; }}
+  label {{ color: #c7cad2; }}
+  input[type=text], input[type=password] {{ background: #26272e; border-color: #383a44; color: #f1f1f3; }}
+  input[type=text]:focus, input[type=password]:focus {{ background: #2b2c34; box-shadow: 0 0 0 3px rgba(107,92,255,.25); }}
+  .error {{ background: rgba(185,28,28,.15); color: #fca5a5; }}
+  .success .check {{ background: rgba(107,92,255,.2); }}
+  .local-badge {{ background: rgba(107,92,255,.18); color: #b9adff; }}
 }}
 </style>
 </head>
 <body>
+<div class="card">
+<div class="logo">
+<svg width="300" height="400" viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
+  <path fill="#7870F4" d="M0 100h100v100H0zm100 100h100v100H100z"/>
+  <path fill="#C3D5F2" d="M200 100h100v100H200zM0 300h100v100H0z"/>
+  <path fill="#E6BFF2" d="M200 100H100a100 100 0 0 1 100-100v100zm-100 200v100a100 100 0 0 0 100-100h-100z"/>
+</svg>
+</div>
+<div class="local-badge">&#128274; 로컬 환경에서만 실행되는 페이지입니다</div>
 {body}
+</div>
 </body>
 </html>
 """
@@ -64,9 +144,9 @@ _FORM = """
 <form method="post" action="/submit" autocomplete="off">
   <input type="hidden" name="csrf_token" value="{csrf_token}">
   <label for="student_id">학번</label>
-  <input type="text" id="student_id" name="student_id" inputmode="numeric" autocomplete="username" required>
+  <input type="text" id="student_id" name="student_id" inputmode="numeric" autocomplete="username" placeholder="학번을 입력하세요" required>
   <label for="password">uSaint 비밀번호</label>
-  <input type="password" id="password" name="password" autocomplete="current-password" required>
+  <input type="password" id="password" name="password" autocomplete="current-password" placeholder="비밀번호를 입력하세요" required>
   <button type="submit">로그인</button>
   {error_html}
 </form>
@@ -76,7 +156,8 @@ _ERROR = '<p class="error">{message}</p>'
 
 _SUCCESS = """
 <div class="success">
-<h1>✓ 로그인 성공</h1>
+<div class="check">&#10003;</div>
+<h1>로그인 성공</h1>
 <p>세션이 안전하게 저장되었습니다. 이 탭을 닫아도 됩니다.</p>
 </div>
 """
