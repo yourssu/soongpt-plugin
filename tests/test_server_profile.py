@@ -183,9 +183,12 @@ async def test_refresh_preserves_user_overrides(
     assert profile["entered_year"] == 2023
 
     assert sorted(result["refreshed_fields"]) == [
+        "connected_major",
         "department",
+        "double_major",
         "entered_year",
         "grade",
+        "minor",
     ]
     assert result["warnings"] == []
 
