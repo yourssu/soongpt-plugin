@@ -17,7 +17,7 @@ mkdir -p "$DATA"
 
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
 if [ -z "$PYTHON_BIN" ]; then
-  echo "[soongpt-mcp] no python3 or python found on PATH" >>"$LOG" 2>&1
+  echo "[soongpt] no python3 or python found on PATH" >>"$LOG" 2>&1
   exit 1
 fi
 
@@ -67,7 +67,7 @@ acquire_lock() {
       continue
     fi
     if [ "$waited" -ge 60 ]; then
-      echo "[soongpt-mcp] timed out waiting for bootstrap lock (held by pid ${holder_pid:-unknown})"
+      echo "[soongpt] timed out waiting for bootstrap lock (held by pid ${holder_pid:-unknown})"
       return 1
     fi
     sleep 1
@@ -84,14 +84,14 @@ release_lock() {
   if acquire_lock; then
     CURRENT_HASH="$(hash_source)"
     if [ -z "$(venv_bin python)" ] || [ "$(cat "$STAMP" 2>/dev/null || true)" != "$CURRENT_HASH" ]; then
-      echo "[soongpt-mcp] installing dependencies into ${VENV}"
+      echo "[soongpt] installing dependencies into ${VENV}"
       rm -rf "$VENV"
       "$PYTHON_BIN" -m venv "$VENV"
       if "$(venv_bin pip)" install --quiet --disable-pip-version-check "$ROOT"; then
         echo "$CURRENT_HASH" >"$STAMP"
-        echo "[soongpt-mcp] install complete"
+        echo "[soongpt] install complete"
       else
-        echo "[soongpt-mcp] install failed, will retry on next launch"
+        echo "[soongpt] install failed, will retry on next launch"
         rm -rf "$VENV" "$STAMP"
         release_lock
         exit 1
