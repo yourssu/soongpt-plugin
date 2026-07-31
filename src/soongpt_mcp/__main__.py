@@ -6,10 +6,7 @@ def main() -> None:
     try:
         from .server import run
     except ImportError as exc:
-        raise SystemExit(
-            f"MCP server module is not available: {exc}. "
-            "Ensure the package was installed with the [fastmcp] extra."
-        )
+        raise SystemExit(f"MCP server module is not available: {exc}.")
     run()
 
 

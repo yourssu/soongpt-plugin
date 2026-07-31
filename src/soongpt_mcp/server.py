@@ -1,11 +1,11 @@
-"""FastMCP server exposing the Soongsil uSaint snapshot tool."""
+"""MCPServer exposing the Soongsil uSaint snapshot tool."""
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .department_map import (
     DepartmentMap,
@@ -52,7 +52,7 @@ from .services.exceptions import SSOTokenError
 from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
 
-mcp = FastMCP("soongpt-mcp")
+mcp = MCPServer("soongpt-mcp")
 
 
 def _jsonify(obj: Any) -> Any:
