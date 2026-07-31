@@ -48,7 +48,11 @@ from .profile import (
     save_profile,
 )
 from .semester import current_academic_period
-from .services.exceptions import SSOTokenError
+from .services.exceptions import (
+    RusaintInternalError,
+    SSOTokenError,
+    is_session_expiry_error,
+)
 from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
 
@@ -69,12 +73,18 @@ def _jsonify(obj: Any) -> Any:
 async def _run_with_session(
     service_call: Callable[[str], Awaitable[Any]],
 ) -> Any:
-    """세션 확보 후 service_call 실행. SSOTokenError 시 1회 재로그인 후 재시도.
+    """세션 확보 후 service_call 실행. 세션 만료 시 1회 재로그인 후 재시도.
+
+    세션 만료 신호는 SSOTokenError 외에도 로그인 페이지 파싱 실패
+    ("Cannot find SSR Client form" → RusaintInternalError)가 해당된다.
+    저장된 세션이 만료된 채 첫 요청을 보내면 유세인트가 로그인 페이지를
+    반환하기 때문이다. 그 외 RusaintInternalError는 그대로 전파한다.
 
     흐름:
     1. 세션 로드/웹 로그인 → service_call(session_json)
-    2. SSOTokenError → invalidate → 자동 웹 로그인 → service_call 재실행
-    3. 재시도에서도 SSOTokenError → 포기
+    2. 세션 만료 신호(SSOTokenError 또는 파싱 실패) → invalidate
+       → 자동 웹 로그인 → service_call 재실행
+    3. 재시도에서도 세션 만료 신호 → 포기
     """
     manager = get_session_manager()
     try:
@@ -84,8 +94,9 @@ async def _run_with_session(
 
     try:
         return await service_call(session_json)
-    except SSOTokenError:
-        pass
+    except (SSOTokenError, RusaintInternalError) as exc:
+        if isinstance(exc, RusaintInternalError) and not is_session_expiry_error(exc):
+            raise
 
     manager.invalidate()
     try:
@@ -95,7 +106,9 @@ async def _run_with_session(
 
     try:
         return await service_call(session_json)
-    except SSOTokenError as exc:
+    except (SSOTokenError, RusaintInternalError) as exc:
+        if isinstance(exc, RusaintInternalError) and not is_session_expiry_error(exc):
+            raise
         raise RuntimeError(
             "재로그인 후에도 세션이 유효하지 않습니다. 숭실대 uSaint 서버에 일시적 문제일 수 있습니다."
         ) from exc
