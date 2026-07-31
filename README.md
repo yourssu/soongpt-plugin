@@ -37,7 +37,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도/복수전공/연계융합전공/부전공/교직이수여부/교직전공)를 로컬 JSON에 저장하여 매번 `get_usaint_snapshot`을 호출하지 않아도 됩니다. 학기별 스냅샷(`profile_{year}_{semester}.json`)으로 관리되어 전과/학년 증가/세부전공 변경 시 과거 학기 컨텍스트가 보존됩니다.
 
-**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.claude/state/soongpt-planner/profile_{year}_{semester}.json`)
+**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.local/share/soongpt-mcp/profile_{year}_{semester}.json`)
 
 **레거시 마이그레이션**: SPR-30의 단일 `profile.json`이 있으면 현재 학기 파일이 없을 때 자동 읽기 fallback → 다음 save 시 새 경로로 이전.
 
@@ -67,7 +67,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 복수/부전공 학과의 단과대를 자동으로 찾기 위한 `{학과명: 단과대}` 매핑. 숭실대 학과 구조는 연 1~2회 변경되므로 1년 TTL로 캐싱.
 
 **3-tier 로딩 순서**:
-1. **로컬 캐시** (즉시): `${CLAUDE_PLUGIN_DATA}/department_map_{year}.json` (폴백 `~/.claude/state/soongpt-planner/`)
+1. **로컬 캐시** (즉시): `${CLAUDE_PLUGIN_DATA}/department_map_{year}.json` (폴백 `~/.local/share/soongpt-mcp/`)
 2. **번들 seed** (즉시): 패키지에 커밋된 정적 파일 `src/soongpt_mcp/data/department_map_{year}.json`
 3. **자동 빌드** (10~20초): USAINT 강의시간표에서 모든 단과대를 순회하며 빌드 → 로컬 캐시에 저장
 

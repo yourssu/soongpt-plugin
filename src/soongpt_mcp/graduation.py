@@ -10,7 +10,7 @@ USAINT fetch가 5-6초 소요되므로 1개월 캐싱. 단일 파일로 현재 �
 
 저장 경로:
 - ${CLAUDE_PLUGIN_DATA}/graduation.json (플러그인 구성 시)
-- ~/.claude/state/soongpt-planner/graduation.json (폴백)
+- ~/.local/share/soongpt-mcp/graduation.json (폴백)
 """
 from __future__ import annotations
 
@@ -33,7 +33,8 @@ def _cache_root() -> Path:
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
         return Path(base)
-    return Path.home() / ".claude" / "state" / "soongpt-planner"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "soongpt-mcp"
 
 
 def resolve_graduation_cache_path() -> Path:

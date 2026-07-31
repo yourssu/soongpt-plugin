@@ -6,7 +6,7 @@
 
 저장 경로:
 - ${CLAUDE_PLUGIN_DATA}/lectures_{year}_{semester}.json (플러그인 구성 시)
-- ~/.claude/state/soongpt-planner/lectures_{year}_{semester}.json (폴백)
+- ~/.local/share/soongpt-mcp/lectures_{year}_{semester}.json (폴백)
 
 캐시 무효화 조건:
 1. 캐시 파일 없음
@@ -34,7 +34,8 @@ def _cache_root() -> Path:
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
         return Path(base)
-    return Path.home() / ".claude" / "state" / "soongpt-planner"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "soongpt-mcp"
 
 
 def resolve_lectures_cache_path(year: int, semester: str) -> Path:

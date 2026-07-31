@@ -9,7 +9,7 @@ USAINT에서 추출 가능한 필드(주전공/학년/입학연도)는 refresh_u
 
 저장 경로:
 - ${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json (플러그인 구성 시)
-- ~/.claude/state/soongpt-planner/profile_{year}_{semester}.json (폴백)
+- ~/.local/share/soongpt-mcp/profile_{year}_{semester}.json (폴백)
 
 레거시 profile.json (SPR-30)은 현재 학기 파일이 없을 때 읽기 fallback용으로
 남아 있을 수 있으며, 다음 save 시점에 새 경로로 마이그레이션됨.
@@ -52,11 +52,12 @@ LEGACY_PROFILE_FILENAME = "profile.json"
 
 
 def _profile_root() -> Path:
-    """프로필 저장 디렉토리 루트. CLAUDE_PLUGIN_DATA 우선, 없으면 ~/.claude/state/..."""
+    """프로필 저장 디렉토리 루트. CLAUDE_PLUGIN_DATA 우선, 없으면 XDG 데이터 경로."""
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
         return Path(base)
-    return Path.home() / ".claude" / "state" / "soongpt-planner"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "soongpt-mcp"
 
 
 def resolve_profile_path(
