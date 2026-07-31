@@ -139,14 +139,14 @@ claude mcp list
 
 ### Codex CLI로 설치 (실험적)
 
-이 저장소는 [Codex CLI](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex CLI에서도 그대로 쓸 수 있습니다.
+이 저장소는 [Codex CLI](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex CLI에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
 
 ```
 codex plugin marketplace add yourssu/soongpt-plugin
 codex plugin install soongpt
 ```
 
-> **주의**: Codex CLI의 플러그인 번들 MCP 서버가 상대경로를 플러그인 설치 위치가 아니라 Codex 실행 디렉터리 기준으로 해석하는 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))가 아직 열려 있습니다. 이 저장소의 `.mcp.json`은 커뮤니티에서 보고된 `"cwd": "."` 우회법을 적용해뒀지만, 실제 설치 환경(OS, Codex 버전)에 따라 동작이 다를 수 있어 정식 지원이 아닌 실험적 지원으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
+> **주의**: Codex CLI의 플러그인 번들 MCP 서버가 상대경로를 플러그인 설치 위치가 아니라 Codex 실행 디렉터리 기준으로 해석하는 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))가 아직 열려 있습니다. 이 저장소의 `codex-mcp.json`은 커뮤니티에서 보고된 `"cwd": "."` 우회법을 적용해뒀지만, 실제 설치 환경(OS, Codex 버전)에 따라 동작이 다를 수 있어 정식 지원이 아닌 실험적 지원으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
 
 ## 로그인 (자동)
 

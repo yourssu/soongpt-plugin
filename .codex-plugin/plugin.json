@@ -2,5 +2,5 @@
   "name": "soongpt",
   "description": "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements",
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json"
+  "mcpServers": "./codex-mcp.json"
 }
