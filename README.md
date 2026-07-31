@@ -1,8 +1,68 @@
 # soongpt-mcp
 
-숭실대 USAINT(u-saint) 데이터를 Claude Code(CLI)에서 가져오는 **로컬 MCP 서버**. [rusaint](https://github.com/EATSTEAK/rusaint) 라이브러리 기반.
+숭실대 USAINT(u-saint) 데이터를 Claude Code / Codex에서 가져오는 **로컬 MCP 서버**. [rusaint](https://github.com/EATSTEAK/rusaint) 라이브러리 기반.
 
 Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아서 USAINT에서 데이터를 가져와 분석해줍니다.
+
+## 요구사항
+
+- Python 3.10 이상
+- macOS / Windows / Linux (GUI). Linux headless는 폴백 환경변수 사용 (아래 "문제 해결" 참고)
+- Claude Code CLI ([설치 가이드](https://docs.claude.com/en/docs/claude-code)) 또는 Codex ([설치 가이드](https://github.com/openai/codex))
+
+## 설치
+
+### Claude Code로 설치 (권장)
+
+Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-guide`)을 한 번에 설치합니다:
+
+```
+/plugin marketplace add yourssu/soongpt-plugin
+/plugin install soongpt@yourssu
+/reload-plugins
+```
+
+`pip install`이나 가상환경(venv)을 직접 만들 필요는 없습니다. 첫 실행 시 Claude Code가 `${CLAUDE_PLUGIN_DATA}` 안에 격리된 Python 가상환경을 자동으로 만들고 의존성을 설치합니다(최초 1회, 보통 몇 초 내). 이후에는 만들어둔 환경을 그대로 재사용해서 즉시 실행됩니다.
+
+> 아래 "수동 설치"로 이미 `claude mcp add`를 등록해서 쓰고 있었다면, 플러그인 설치 전에 `claude mcp remove soongpt-mcp -s user`로 기존 등록을 지우는 걸 권장합니다. 같은 이름의 서버가 여러 scope에 동시에 등록되면 충돌 경고가 뜹니다.
+
+### Codex로 설치
+
+이 저장소는 [Codex](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
+
+```
+codex plugin marketplace add yourssu/soongpt-plugin
+codex plugin add soongpt@yourssu
+```
+
+> **검증 상태**: macOS + Codex 0.146.0에서 실제 설치 → MCP 서버 부트스트랩 → `tools/list`로 13개 도구 전부 응답 → 4개 스킬 디렉터리 인식까지 직접 확인했습니다. `codex-mcp.json`의 `"cwd": "."`는 플러그인 번들 MCP 서버의 상대경로 해석 관련 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))에 대한 커뮤니티 우회법인데, 이 버전에서는 정상 동작함을 확인했습니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
+
+### 수동 설치 (이 저장소를 직접 개발할 때)
+
+이 저장소 자체를 열어서 코드를 수정/기여하는 경우엔 기존처럼 로컬 venv로 설치하는 걸 권장합니다:
+
+```bash
+git clone https://github.com/yourssu/soongpt-plugin.git
+cd soongpt-plugin
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e .
+```
+
+**User scope**(권장, 어디서든 사용):
+
+```bash
+claude mcp add -s user soongpt-mcp -- /절대/경로/soongpt-mcp/.venv/bin/python -m soongpt_mcp
+```
+
+> venv 안의 `python` 실행파일을 절대 경로로 지정해야 rusaint/mcp 의존성이 다 보입니다.
+
+연결 확인:
+
+```bash
+claude mcp list
+# soongpt-mcp: ... - ✓ Connected
+```
 
 ## 특징
 
@@ -87,66 +147,6 @@ cp ${CLAUDE_PLUGIN_DATA}/department_map_2026.json \
 ```
 
 학과가 신설/통폐합되면 사용자가 `force_refresh=True`로 즉시 갱신 가능 (안전망).
-
-## 요구사항
-
-- Python 3.10 이상
-- macOS / Windows / Linux (GUI). Linux headless는 폴백 환경변수 사용 (아래 참고)
-- Claude Code CLI ([설치 가이드](https://docs.claude.com/en/docs/claude-code))
-
-## 설치
-
-### 플러그인으로 설치 (권장)
-
-Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-guide`)을 한 번에 설치합니다:
-
-```
-/plugin marketplace add yourssu/soongpt-plugin
-/plugin install soongpt@yourssu
-/reload-plugins
-```
-
-`pip install`이나 가상환경(venv)을 직접 만들 필요는 없습니다. 첫 실행 시 Claude Code가 `${CLAUDE_PLUGIN_DATA}` 안에 격리된 Python 가상환경을 자동으로 만들고 의존성을 설치합니다(최초 1회, 보통 몇 초 내). 이후에는 만들어둔 환경을 그대로 재사용해서 즉시 실행됩니다.
-
-> 아래 "수동 설치"로 이미 `claude mcp add`를 등록해서 쓰고 있었다면, 플러그인 설치 전에 `claude mcp remove soongpt-mcp -s user`로 기존 등록을 지우는 걸 권장합니다. 같은 이름의 서버가 여러 scope에 동시에 등록되면 충돌 경고가 뜹니다.
-
-### 수동 설치 (이 저장소를 직접 개발할 때)
-
-이 저장소 자체를 열어서 코드를 수정/기여하는 경우엔 기존처럼 로컬 venv로 설치하는 걸 권장합니다:
-
-```bash
-git clone https://github.com/yourssu/soongpt-plugin.git
-cd soongpt-plugin
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e .
-```
-
-**User scope**(권장, 어디서든 사용):
-
-```bash
-claude mcp add -s user soongpt-mcp -- /절대/경로/soongpt-mcp/.venv/bin/python -m soongpt_mcp
-```
-
-> venv 안의 `python` 실행파일을 절대 경로로 지정해야 rusaint/mcp 의존성이 다 보입니다.
-
-연결 확인:
-
-```bash
-claude mcp list
-# soongpt-mcp: ... - ✓ Connected
-```
-
-### Codex CLI로 설치 (실험적)
-
-이 저장소는 [Codex CLI](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex CLI에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
-
-```
-codex plugin marketplace add yourssu/soongpt-plugin
-codex plugin add soongpt@yourssu
-```
-
-> **검증 상태**: macOS + Codex CLI 0.146.0에서 실제 설치 → MCP 서버 부트스트랩 → `tools/list`로 13개 도구 전부 응답 → 4개 스킬 디렉터리 인식까지 직접 확인했습니다. `codex-mcp.json`의 `"cwd": "."`는 플러그인 번들 MCP 서버의 상대경로 해석 관련 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))에 대한 커뮤니티 우회법인데, 이 버전에서는 정상 동작함을 확인했습니다. 다만 Windows나 다른 Codex 버전에서는 아직 검증되지 않았으니 "실험적"으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
 
 ## 로그인 (자동)
 
