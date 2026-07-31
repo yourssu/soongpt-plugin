@@ -20,11 +20,13 @@ from soongpt_mcp.schemas.usaint_schemas import BasicInfo
 def isolated_profile_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Path:
-    """profile 모듈과 server 모듈 양쪽 경로를 tmp_path로 통일."""
-    target = tmp_path / "profile.json"
+    """스냅샷 경로를 tmp_path로 격리 (SPR-46: 프로필 SoT = snapshot 파일)."""
+    target = tmp_path / "snapshot.json"
     monkeypatch.setattr(
-        "soongpt_mcp.profile.resolve_profile_path", lambda: target
+        "soongpt_mcp.snapshot_cache.resolve_snapshot_path",
+        lambda *a, **k: target,
     )
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
     return target
 
 
@@ -80,7 +82,7 @@ async def test_get_profile_when_missing(
 ) -> None:
     result = await server.get_user_profile()
     assert result["profile"] is None
-    assert "refresh_user_profile" in result["guidance"]
+    assert "get_usaint_snapshot" in result["guidance"]
 
 
 @pytest.mark.asyncio

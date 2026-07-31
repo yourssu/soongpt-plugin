@@ -23,13 +23,6 @@ from .graduation import (
     load_graduation_cache,
     save_graduation_cache,
 )
-from .lectures_cache import (
-    LectureGroupEntry,
-    LecturesCache,
-    is_lectures_cache_fresh,
-    load_lectures_cache as _load_lectures_cache_file,
-    save_lectures_cache as _save_lectures_cache_file,
-)
 from .interview import (
     SECTION_NAMES as INTERVIEW_SECTION_NAMES,
 )
@@ -41,11 +34,20 @@ from .interview import (
 from .interview import (
     list_interview_files as _list_interview_files,
 )
+from .lectures_cache import (
+    LectureGroupEntry,
+    LecturesCache,
+    is_lectures_cache_fresh,
+)
+from .lectures_cache import (
+    load_lectures_cache as _load_lectures_cache_file,
+)
+from .lectures_cache import (
+    save_lectures_cache as _save_lectures_cache_file,
+)
 from .profile import (
     SUBMISSION_FIELDS,
     UserProfile,
-    load_profile,
-    save_profile,
 )
 from .semester import current_academic_period
 from .services.exceptions import (
@@ -55,6 +57,14 @@ from .services.exceptions import (
 )
 from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
+from .snapshot_cache import (
+    SnapshotCache,
+    is_snapshot_cache_fresh,
+    load_profile,
+    load_snapshot_cache,
+    save_profile,
+    save_snapshot_cache,
+)
 
 mcp = MCPServer("soongpt-mcp")
 
@@ -115,22 +125,79 @@ async def _run_with_session(
 
 
 @mcp.tool()
-async def get_usaint_snapshot() -> dict:
-    """숭실대 USAINT에서 학적/수강/성적 데이터를 가져옵니다 (가공 전 raw).
+async def get_usaint_snapshot(force_refresh: bool = False) -> dict:
+    """숭실대 USAINT에서 학적/수강/성적 데이터를 가져와 로컬에 저장합니다.
 
-    반환: basicInfo, takenCourses, lowGradeSubjectCodes, subjectNames, flags, warnings.
-    subjectNames는 과목 코드 → 강의명 매핑 (실제 수강한 과목만 포함, 재수강 대체과목
-    추천 코드처럼 수강 이력이 없는 코드는 미포함 — 이 경우 코드를 그대로 사용).
+    캐싱: 학기별 스냅샷(snapshot_{year}_{semester}.json)을 단일 SoT로 사용.
+    force_refresh=False(기본)면 수강이력 캐시가 30일 이내일 때 USAINT 재호출 없이
+    저장된 데이터를 반환하고, 미스/만료 시 fetch 후 프로필·수강이력을 저장합니다.
+    프로필(profile)도 함께 갱신하므로, 이 도구 호출 하나로 프로필 + 수강이력이
+    준비됩니다. 이후 시간표 단계는 get_user_profile/get_usaint_snapshot의 캐시를
+    재사용하면 됩니다.
+
+    반환: basicInfo, takenCourses, lowGradeSubjectCodes, subjectNames, flags,
+    warnings + _cache: {source: "cache"|"fresh", fetched_at, age_days}.
+    subjectNames는 과목 코드 → 강의명 매핑 (실제 수강한 과목만 포함, 재수강
+    대체과목 추천 코드처럼 수강 이력이 없는 코드는 미포함 — 코드를 그대로 사용).
     졸업사정표는 별도 도구 get_graduation_status를 사용하세요.
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
+    year, semester = current_academic_period()
+    now = datetime.now(timezone.utc)
+
+    if not force_refresh:
+        cached, fetched_at = load_snapshot_cache(year, semester)
+        if (
+            cached is not None
+            and fetched_at is not None
+            and is_snapshot_cache_fresh(fetched_at, now=now)
+        ):
+            return _format_snapshot_response(
+                cached, source="cache", fetched_at=fetched_at, now=now
+            )
+
     service = RusaintService()
     snapshot = await _run_with_session(service.fetch_usaint_snapshot)
-    if hasattr(snapshot, "model_dump"):
-        return snapshot.model_dump(mode="json")
-    return snapshot
+    profile = _merge_profile_from_basic_info(snapshot.basicInfo)
+    cache = SnapshotCache(
+        year=year,
+        semester=semester,
+        profile=profile,
+        basicInfo=snapshot.basicInfo,
+        takenCourses=snapshot.takenCourses,
+        lowGradeSubjectCodes=snapshot.lowGradeSubjectCodes,
+        subjectNames=snapshot.subjectNames,
+        flags=snapshot.flags,
+        warnings=snapshot.warnings,
+        fetched_at=now,
+    )
+    save_snapshot_cache(cache)
+    return _format_snapshot_response(cache, source="fresh", fetched_at=now, now=now)
+
+
+def _format_snapshot_response(
+    cache: SnapshotCache,
+    source: str,
+    fetched_at: datetime,
+    now: datetime,
+) -> dict:
+    """get_usaint_snapshot 응답 포맷팅 (cache/fresh 공통)."""
+    age_days = (now - fetched_at).days if fetched_at is not None else None
+    return {
+        "basicInfo": _jsonify(cache.basicInfo),
+        "takenCourses": _jsonify(cache.takenCourses),
+        "lowGradeSubjectCodes": _jsonify(cache.lowGradeSubjectCodes),
+        "subjectNames": _jsonify(cache.subjectNames),
+        "flags": _jsonify(cache.flags),
+        "warnings": cache.warnings,
+        "_cache": {
+            "source": source,
+            "fetched_at": fetched_at.isoformat() if fetched_at is not None else None,
+            "age_days": age_days,
+        },
+    }
 
 
 @mcp.tool()
@@ -425,21 +492,47 @@ async def _fetch_basic_info_via_session() -> tuple[Any, list[str]]:
     return await _run_with_session(service.fetch_basic_info)
 
 
+def _merge_profile_from_basic_info(basic_info: Any) -> UserProfile:
+    """USAINT basicInfo를 프로필에 병합 (USAINT 8필드만 덮어쓰기).
+
+    기존 프로필의 학번/이름/단과대/트랙 등 사용자 입력 필드는 보존하고,
+    USAINT가 제공하는 8개 필드(department, grade, entered_year, double_major,
+    connected_major, minor, teaching_certification, teaching_major)만 갱신.
+    get_usaint_snapshot과 refresh_user_profile이 공용으로 사용한다.
+    """
+    fresh = UserProfile.from_basic_info(basic_info)
+    existing = load_profile() or UserProfile()
+    merged = existing.model_copy(
+        update={
+            "department": fresh.department,
+            "grade": fresh.grade,
+            "entered_year": fresh.entered_year,
+            "double_major": fresh.double_major,
+            "connected_major": fresh.connected_major,
+            "minor": fresh.minor,
+            "teaching_certification": fresh.teaching_certification,
+            "teaching_major": fresh.teaching_major,
+            "updated_at": datetime.now(timezone.utc),
+        }
+    )
+    return merged
+
+
 @mcp.tool()
 async def get_user_profile() -> dict:
     """저장된 사용자 프로필 반환.
 
     프로필이 없으면 profile=None과 함께 안내 메시지를 반환합니다.
-    프로필을 처음 만들려면 refresh_user_profile을 호출해 USAINT에서 초기값을 가져오거나
-    set_user_profile로 필드를 직접 입력하세요.
+    프로필은 get_usaint_snapshot() 호출 시 USAINT 학적정보로 자동 채워집니다.
+    사용자가 직접 수정하려면 set_user_profile을 사용하세요.
     """
     profile = load_profile()
     if profile is None:
         return {
             "profile": None,
             "guidance": (
-                "저장된 프로필이 없습니다. refresh_user_profile을 호출해 USAINT에서 초기값을 "
-                "가져오거나 set_user_profile로 학번/이름 등을 직접 설정하세요."
+                "저장된 프로필이 없습니다. get_usaint_snapshot()을 호출하면 USAINT "
+                "학적정보로 프로필이 자동 채워집니다."
             ),
         }
     return {"profile": _jsonify(profile)}
@@ -508,20 +601,7 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
             "warnings": warnings,
         }
 
-    existing = load_profile() or UserProfile()
-    merged = existing.model_copy(
-        update={
-            "department": fresh.department,
-            "grade": fresh.grade,
-            "entered_year": fresh.entered_year,
-            "double_major": fresh.double_major,
-            "connected_major": fresh.connected_major,
-            "minor": fresh.minor,
-            "teaching_certification": fresh.teaching_certification,
-            "teaching_major": fresh.teaching_major,
-            "updated_at": datetime.now(timezone.utc),
-        }
-    )
+    merged = _merge_profile_from_basic_info(basic_info)
     save_profile(merged)
     return {
         "profile": _jsonify(merged),

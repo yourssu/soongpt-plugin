@@ -20,13 +20,13 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 ### 1. 프로필 확인 (필수)
 
 - `get_user_profile()` 호출
-- `profile == null`이면 `refresh_user_profile()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈)
-- 프로필이 여전히 비어있거나 아래 **필수 필드** 중 하나라도 비어있으면 사용자에게 보충 요청 후 중단:
+- `profile == null`이거나 필수 필드가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보)
+- 그래도 아래 **필수 필드** 중 하나라도 비어있으면 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다:
   - `college` (단과대)
   - `department` (주전공 학과)
   - `grade` (학년)
   - `entered_year` (입학연도 — 교양 분야 학번 태그 필터링에 필수)
-- 보충은 `set_user_profile(field, value)`로 사용자가 직접 입력
+- `set_user_profile`은 사용자가 직접 값을 입력해야 하는 경우에만 사용한다 (자동 온보딩 수단 아님).
 
 ### 2. 캐시 확인
 
@@ -196,7 +196,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 | 상황 | 스킬 응답 |
 |---|---|
 | `college` 비어있음 | "주전공 학과의 단과대가 어디야? (예: IT대학, 인문대학)" → `set_user_profile("college", ...)` |
-| `department` 비어있음 | 프로필부터 먼저 설정하도록 `/soongpt-interview`나 `refresh_user_profile`로 유도 |
+| `department` 비어있음 | `get_usaint_snapshot()` 호출로 USAINT 학적정보에서 재확보 유도 |
 | `entered_year` 비어있음 | "입학연도 알려줘 (교양 분야 필터링에 필요)" → `set_user_profile("entered_year", ...)` |
 | `double_major`/`minor`의 단과대 모름 | "복수전공 학과 {X}의 단과대가 어디야?" |
 

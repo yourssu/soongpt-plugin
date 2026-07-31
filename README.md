@@ -100,7 +100,7 @@ claude mcp list
 
 | 도구 | 반환 데이터 | 소요 시간 |
 |---|---|---|
-| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 | ~9초 |
+| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시, 프로필 자동 저장) | 캐시 hit 즉시 / 미스 ~9초 |
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
@@ -118,29 +118,32 @@ claude mcp list
 
 ## 사용자 프로필
 
-학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도/복수전공/연계융합전공/부전공/교직이수여부/교직전공)를 로컬 JSON에 저장하여 매번 `get_usaint_snapshot`을 호출하지 않아도 됩니다. 학기별 스냅샷(`profile_{year}_{semester}.json`)으로 관리되어 전과/학년 증가/세부전공 변경 시 과거 학기 컨텍스트가 보존됩니다.
+학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도/복수전공/연계융합전공/부전공/교직이수여부/교직전공)와 수강이력(학기별 수강과목, 저성적 과목)을 한 파일에 저장해 매번 USAINT를 호출하지 않아도 됩니다. **프로필 + 수강이력의 단일 SoT는 학기별 스냅샷(`snapshot_{year}_{semester}.json`)** — `get_usaint_snapshot()`이 fetch 결과를 저장하고, 프로필 수정도 이 파일에 반영됩니다. 학기별로 분리되어 전과/학년 증가/세부전공 변경 시 과거 학기 컨텍스트가 보존됩니다.
 
-**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.local/share/soongpt-mcp/profile_{year}_{semester}.json`)
+**저장 위치**: `${CLAUDE_PLUGIN_DATA}/snapshot_{year}_{semester}.json` (없으면 `~/.local/share/soongpt-mcp/snapshot_{year}_{semester}.json`)
 
-**레거시 마이그레이션**: SPR-30의 단일 `profile.json`이 있으면 현재 학기 파일이 없을 때 자동 읽기 fallback → 다음 save 시 새 경로로 이전.
+**마이그레이션**: SPR-46 이전의 `profile_{year}_{semester}.json`(및 SPR-30의 `profile.json`)은 스냅샷 파일이 없을 때 자동 읽기 fallback → 다음 저장 시 스냅샷 파일로 이전.
 
-**USAINT가 채우는 필드** (8개): `department`, `grade`, `entered_year`, `double_major`(복수전공), `connected_major`(연계·융합전공), `minor`(부전공), `teaching_certification`(교직이수 여부), `teaching_major`(교직 전공명) — `refresh_user_profile`로 동기화 (학적 기본 정보만 가볍게 조회, ~2-3초)
-**사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력
+**캐시 TTL**: 수강이력은 학기 중 거의 불변하므로 30일. 만료/없으면 `get_usaint_snapshot()`이 USAINT에서 다시 fetch하고, `force_refresh=True`로 강제 새로고침할 수 있습니다.
+
+**USAINT가 채우는 필드** (8개): `department`, `grade`, `entered_year`, `double_major`(복수전공), `connected_major`(연계·융합전공), `minor`(부전공), `teaching_certification`(교직이수 여부), `teaching_major`(교직 전공명) — `get_usaint_snapshot()`/`refresh_user_profile`로 동기화
+**사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력 (사용자가 명시적으로 수정을 요청할 때)
 
 ### 워크플로우
 
 ```
-1. 처음: "내 프로필 설정해줘"
-   → refresh_user_profile() 호출 → USAINT에서 8개 필드 추출 저장
-   → set_user_profile("student_id", "20240001") 로 학번 입력
-   → set_user_profile("name", "홍길동") 으로 이름 입력
-   → set_user_profile("grade", 3) 처럼 정수 필드는 숫자로 (문자열 "3"도 자동 변환됨)
+1. 처음: "시간표 짜자"
+   → get_usaint_snapshot() 호출 → USAINT에서 프로필(8필드)+수강이력 저장 (미스 시 ~9초)
+   → 학번/이름/단과대/트랙처럼 USAINT가 못 채우는 필드는 필요할 때 set_user_profile로 입력
 
-2. 휴학/복학/전과 후: "내 프로필 업데이트해줘"
+2. 이후 재진입: get_usaint_snapshot()이 30일 캐시로 즉시 응답 (USAINT 재호출 없음)
+
+3. 휴학/복학/전과 후: "내 프로필 업데이트해줘"
    → refresh_user_profile(preserve_user_overrides=True)
    → USAINT 8개 필드 갱신, 사용자가 입력한 학번/이름 등은 보존
 
-3. 이후: 저장된 프로필 기반으로 시간표 추천/졸업 분석 (매번 USAINT 호출 X)
+4. 수강이력 새로고침: "수강이력 새로 가져와"
+   → get_usaint_snapshot(force_refresh=True)
 ```
 
 > 참고: 동시 호출 시 마지막 write가 이길 수 있습니다. MCP 클라이언트가 보통 직렬 호출하지만, 병렬 실행 시 lost update 가능성이 있습니다. 파일 쓰기는 atomic rename으로 크래시 중 손상을 방지합니다.
