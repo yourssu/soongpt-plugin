@@ -35,6 +35,31 @@ codex plugin marketplace add yourssu/soongpt-plugin
 codex plugin add soongpt@yourssu
 ```
 
+## 업데이트
+
+플러그인 버전은 마켓플레이스 저장소의 **커밋 SHA** 기준으로 관리됩니다. 새 커밋(수정/기능 추가)이 올라오면 아래 방법으로 업데이트합니다.
+
+### Claude Code
+
+Claude Code 대화창에서:
+
+```
+/plugin update
+```
+
+설치된 모든 플러그인이 마켓플레이스 최신 커밋으로 업데이트됩니다. 완료 후 **Claude Code를 재시작**해야 새 MCP 서버 코드가 로드됩니다 (MCP 서버는 세션 시작 시 실행되는 프로세스). 현재 버전은 `/plugin`으로 확인할 수 있습니다.
+
+> 마켓플레이스가 오래된 상태로 남아 있으면 `claude plugin marketplace update yourssu/soongpt-plugin` 실행 후 다시 `/plugin update`를 해보세요.
+
+### Codex
+
+```
+codex plugin marketplace upgrade yourssu/soongpt-plugin
+codex plugin add soongpt@yourssu
+```
+
+`marketplace upgrade`로 마켓플레이스 스냅샷을 최신 커밋으로 갱신한 뒤, `plugin add`로 플러그인을 다시 설치해 업데이트합니다. 설치 상태는 `codex plugin list`로 확인할 수 있습니다.
+
 ### 수동 설치 (이 저장소를 직접 개발할 때)
 
 이 저장소 자체를 열어서 코드를 수정/기여하는 경우엔 기존처럼 로컬 venv로 설치합니다:
