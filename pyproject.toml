@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "soongpt-mcp"
 version = "0.1.0"
-description = "MCP server exposing Soongsil University uSaint data via rusaint"
+description = "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements"
 requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,8 +36,8 @@ dependencies = [
 soongpt-mcp = "soongpt_mcp.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/spreadone/soongpt-mcp"
-Repository = "https://github.com/spreadone/soongpt-mcp"
+Homepage = "https://github.com/yourssu/soongpt-plugin"
+Repository = "https://github.com/yourssu/soongpt-plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/soongpt_mcp"]

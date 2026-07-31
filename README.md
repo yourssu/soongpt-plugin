@@ -101,7 +101,7 @@ cp ${CLAUDE_PLUGIN_DATA}/department_map_2026.json \
 Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-guide`)을 한 번에 설치합니다:
 
 ```
-/plugin marketplace add yourssu/soongpt-mcp
+/plugin marketplace add yourssu/soongpt-plugin
 /plugin install soongpt@yourssu
 /reload-plugins
 ```
@@ -115,8 +115,8 @@ Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongp
 이 저장소 자체를 열어서 코드를 수정/기여하는 경우엔 기존처럼 로컬 venv로 설치하는 걸 권장합니다:
 
 ```bash
-git clone https://github.com/yourssu/soongpt-mcp.git
-cd soongpt-mcp
+git clone https://github.com/yourssu/soongpt-plugin.git
+cd soongpt-plugin
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
