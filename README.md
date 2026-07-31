@@ -143,10 +143,10 @@ claude mcp list
 
 ```
 codex plugin marketplace add yourssu/soongpt-plugin
-codex plugin install soongpt
+codex plugin add soongpt@yourssu
 ```
 
-> **주의**: Codex CLI의 플러그인 번들 MCP 서버가 상대경로를 플러그인 설치 위치가 아니라 Codex 실행 디렉터리 기준으로 해석하는 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))가 아직 열려 있습니다. 이 저장소의 `codex-mcp.json`은 커뮤니티에서 보고된 `"cwd": "."` 우회법을 적용해뒀지만, 실제 설치 환경(OS, Codex 버전)에 따라 동작이 다를 수 있어 정식 지원이 아닌 실험적 지원으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
+> **검증 상태**: macOS + Codex CLI 0.146.0에서 실제 설치 → MCP 서버 부트스트랩 → `tools/list`로 13개 도구 전부 응답 → 4개 스킬 디렉터리 인식까지 직접 확인했습니다. `codex-mcp.json`의 `"cwd": "."`는 플러그인 번들 MCP 서버의 상대경로 해석 관련 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))에 대한 커뮤니티 우회법인데, 이 버전에서는 정상 동작함을 확인했습니다. 다만 Windows나 다른 Codex 버전에서는 아직 검증되지 않았으니 "실험적"으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
 
 ## 로그인 (자동)
 
