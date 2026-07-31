@@ -1,0 +1,17 @@
+{
+  "name": "soongpt",
+  "version": "0.1.0",
+  "description": "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements",
+  "author": { "name": "soongpt-mcp contributors" },
+  "repository": "https://github.com/yourssu/soongpt-mcp",
+  "homepage": "https://github.com/yourssu/soongpt-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "soongsil", "rusaint", "claude-code", "plugin", "timetable"],
+  "skills": [
+    "./skills/soongpt-available-lectures/",
+    "./skills/soongpt-guide/",
+    "./skills/soongpt-interview/",
+    "./skills/soongpt-timetable-builder/"
+  ],
+  "mcpServers": "./mcp.json"
+}

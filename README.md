@@ -96,7 +96,23 @@ cp ${CLAUDE_PLUGIN_DATA}/department_map_2026.json \
 
 ## 설치
 
-저장소 클론 후 개발 모드로 설치:
+### 플러그인으로 설치 (권장)
+
+Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-guide`)을 한 번에 설치합니다:
+
+```
+/plugin marketplace add yourssu/soongpt-mcp
+/plugin install soongpt@yourssu
+/reload-plugins
+```
+
+`pip install`이나 가상환경(venv)을 직접 만들 필요는 없습니다. 첫 실행 시 Claude Code가 `${CLAUDE_PLUGIN_DATA}` 안에 격리된 Python 가상환경을 자동으로 만들고 의존성을 설치합니다(최초 1회, 보통 몇 초 내). 이후에는 만들어둔 환경을 그대로 재사용해서 즉시 실행됩니다.
+
+> 아래 "수동 설치"로 이미 `claude mcp add`를 등록해서 쓰고 있었다면, 플러그인 설치 전에 `claude mcp remove soongpt-mcp -s user`로 기존 등록을 지우는 걸 권장합니다. 같은 이름의 서버가 여러 scope에 동시에 등록되면 충돌 경고가 뜹니다.
+
+### 수동 설치 (이 저장소를 직접 개발할 때)
+
+이 저장소 자체를 열어서 코드를 수정/기여하는 경우엔 기존처럼 로컬 venv로 설치하는 걸 권장합니다:
 
 ```bash
 git clone https://github.com/yourssu/soongpt-mcp.git
@@ -105,8 +121,6 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
-
-## Claude Code에 연결
 
 **User scope**(권장, 어디서든 사용):
 

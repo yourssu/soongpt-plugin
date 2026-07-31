@@ -1,0 +1,11 @@
+{
+  "name": "yourssu",
+  "description": "yourssu 팀이 배포하는 Claude Code 플러그인 마켓플레이스",
+  "owner": { "name": "yourssu" },
+  "plugins": [
+    {
+      "name": "soongpt",
+      "source": "./"
+    }
+  ]
+}
