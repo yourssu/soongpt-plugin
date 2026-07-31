@@ -24,7 +24,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "mcp>=1.0,<2.0",
+    "mcp>=2.0",
     "rusaint==0.16.3",
     "keyring>=24.0",
     "pydantic>=2.0",
