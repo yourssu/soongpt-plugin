@@ -190,3 +190,11 @@ def test_is_session_expiry_error_walks_cause_chain() -> None:
     wrapped.__cause__ = cause
     assert is_session_expiry_error(wrapped)
     assert not is_session_expiry_error(RuntimeError("원인이 없는 오류"))
+
+
+def test_is_session_expiry_error_walks_context_chain() -> None:
+    """`raise X from e` 없이 래핑된 경우(__context__만)에도 탐지."""
+    context = RuntimeError("Cannot find SSR Client form")
+    wrapped = RusaintInternalError("래핑된 메시지")
+    wrapped.__context__ = context
+    assert is_session_expiry_error(wrapped)
