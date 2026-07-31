@@ -102,7 +102,7 @@ Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongp
 
 ```
 /plugin marketplace add yourssu/soongpt-mcp
-/plugin install soongpt-mcp@soongpt-mcp
+/plugin install soongpt@yourssu
 /reload-plugins
 ```
 

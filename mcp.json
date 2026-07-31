@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "soongpt-mcp": {
+    "soongpt": {
       "command": "bash",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/scripts/run-server.sh"
