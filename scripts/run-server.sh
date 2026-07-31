@@ -6,8 +6,12 @@
 # bootstrap message below is redirected to a log file instead.
 set -euo pipefail
 
-ROOT="${CLAUDE_PLUGIN_ROOT}"
-DATA="${CLAUDE_PLUGIN_DATA}"
+# CLAUDE_PLUGIN_ROOT/CLAUDE_PLUGIN_DATA are Claude Code-specific; other MCP
+# hosts (e.g. Codex CLI) don't set them. Fall back to this script's own
+# location for ROOT, and a plain XDG data dir for DATA.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+DATA="${CLAUDE_PLUGIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/soongpt-mcp}"
 VENV="${DATA}/venv"
 STAMP="${DATA}/source.sha256"
 LOCK_DIR="${DATA}/bootstrap.lock"

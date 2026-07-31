@@ -37,7 +37,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 학적 컨텍스트(학번/이름/단과대/주전공/학년/트랙/입학연도/복수전공/연계융합전공/부전공/교직이수여부/교직전공)를 로컬 JSON에 저장하여 매번 `get_usaint_snapshot`을 호출하지 않아도 됩니다. 학기별 스냅샷(`profile_{year}_{semester}.json`)으로 관리되어 전과/학년 증가/세부전공 변경 시 과거 학기 컨텍스트가 보존됩니다.
 
-**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.claude/state/soongpt-planner/profile_{year}_{semester}.json`)
+**저장 위치**: `${CLAUDE_PLUGIN_DATA}/profile_{year}_{semester}.json` (없으면 `~/.local/share/soongpt-mcp/profile_{year}_{semester}.json`)
 
 **레거시 마이그레이션**: SPR-30의 단일 `profile.json`이 있으면 현재 학기 파일이 없을 때 자동 읽기 fallback → 다음 save 시 새 경로로 이전.
 
@@ -67,7 +67,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 복수/부전공 학과의 단과대를 자동으로 찾기 위한 `{학과명: 단과대}` 매핑. 숭실대 학과 구조는 연 1~2회 변경되므로 1년 TTL로 캐싱.
 
 **3-tier 로딩 순서**:
-1. **로컬 캐시** (즉시): `${CLAUDE_PLUGIN_DATA}/department_map_{year}.json` (폴백 `~/.claude/state/soongpt-planner/`)
+1. **로컬 캐시** (즉시): `${CLAUDE_PLUGIN_DATA}/department_map_{year}.json` (폴백 `~/.local/share/soongpt-mcp/`)
 2. **번들 seed** (즉시): 패키지에 커밋된 정적 파일 `src/soongpt_mcp/data/department_map_{year}.json`
 3. **자동 빌드** (10~20초): USAINT 강의시간표에서 모든 단과대를 순회하며 빌드 → 로컬 캐시에 저장
 
@@ -136,6 +136,17 @@ claude mcp add -s user soongpt-mcp -- /절대/경로/soongpt-mcp/.venv/bin/pytho
 claude mcp list
 # soongpt-mcp: ... - ✓ Connected
 ```
+
+### Codex CLI로 설치 (실험적)
+
+이 저장소는 [Codex CLI](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex CLI에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
+
+```
+codex plugin marketplace add yourssu/soongpt-plugin
+codex plugin add soongpt@yourssu
+```
+
+> **검증 상태**: macOS + Codex CLI 0.146.0에서 실제 설치 → MCP 서버 부트스트랩 → `tools/list`로 13개 도구 전부 응답 → 4개 스킬 디렉터리 인식까지 직접 확인했습니다. `codex-mcp.json`의 `"cwd": "."`는 플러그인 번들 MCP 서버의 상대경로 해석 관련 알려진 이슈([openai/codex#22842](https://github.com/openai/codex/issues/22842))에 대한 커뮤니티 우회법인데, 이 버전에서는 정상 동작함을 확인했습니다. 다만 Windows나 다른 Codex 버전에서는 아직 검증되지 않았으니 "실험적"으로 표시합니다. 문제가 있으면 아래 "수동 설치"처럼 venv를 직접 만들고 `~/.codex/config.toml`에 절대경로로 등록하는 방법이 안전합니다.
 
 ## 로그인 (자동)
 

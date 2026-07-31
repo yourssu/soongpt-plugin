@@ -7,7 +7,7 @@ USAINT 강의시간표의 collages() + departments()를 순회하여 빌드한
 
 3-tier 로딩 순서 (server.py load_department_map이 사용):
 1. 로컬 캐시: ${CLAUDE_PLUGIN_DATA}/department_map_{year}.json
-   (폴백 ~/.claude/state/soongpt-planner/department_map_{year}.json)
+   (폴백 ~/.local/share/soongpt-mcp/department_map_{year}.json)
 2. 번들 seed: 패키지 내 data/department_map_{year}.json (메인테이너가 커밋)
 3. 자동 빌드: USAINT에서 실시간 fetch → 로컬 캐시에 저장
 
@@ -42,7 +42,8 @@ def _department_map_root() -> Path:
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
         return Path(base)
-    return Path.home() / ".claude" / "state" / "soongpt-planner"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "soongpt-mcp"
 
 
 def resolve_department_map_path(year: int) -> Path:

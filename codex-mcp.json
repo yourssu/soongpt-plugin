@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "soongpt": {
+      "command": "bash",
+      "args": ["scripts/run-server.sh"],
+      "cwd": "."
+    }
+  }
+}

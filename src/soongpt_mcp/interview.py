@@ -6,7 +6,7 @@
 
 학기별 스냅샷:
 - ${CLAUDE_PLUGIN_DATA}/interview_{year}_{semester}.json
-- ~/.claude/state/soongpt-planner/interview_{year}_{semester}.json (폴백)
+- ~/.local/share/soongpt-mcp/interview_{year}_{semester}.json (폴백)
 
 3개 섹션:
 1. semester_strategy: 이번 학기 목표 (학점 등) — 자유 텍스트
@@ -42,7 +42,8 @@ def _interview_root() -> Path:
     base = os.environ.get("CLAUDE_PLUGIN_DATA")
     if base:
         return Path(base)
-    return Path.home() / ".claude" / "state" / "soongpt-planner"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    return (Path(xdg) if xdg else Path.home() / ".local" / "share") / "soongpt-mcp"
 
 
 def resolve_interview_path(
