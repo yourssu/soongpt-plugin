@@ -1,4 +1,4 @@
-# soongpt-mcp 프로젝트 지침
+# soongpt-plugin 프로젝트 지침
 
 > 이 파일은 이 저장소를 직접 개발할 때(로컬에서 이 폴더를 열었을 때)의 컨텍스트입니다. 플러그인을 설치한 최종 사용자에게는 전달되지 않습니다(`claude plugin tag` 실행 시 "CLAUDE.md at the plugin root is not loaded as project context" 경고 있음 — 사용자에게 컨텍스트를 배포하려면 skill로 만들어야 함).
 
