@@ -161,6 +161,42 @@ def test_from_basic_info_majors_default_none() -> None:
     assert p.minor is None
 
 
+def test_from_basic_info_extracts_college() -> None:
+    """SPR-55: BasicInfo에서 college(단과대) 추출."""
+    basic = {
+        "year": 2023,
+        "grade": 3,
+        "semester": 5,
+        "department": "컴퓨터학부",
+        "college": "공과대학",
+    }
+    p = UserProfile.from_basic_info(basic)
+    assert p.college == "공과대학"
+
+
+def test_from_basic_info_college_defaults_none_when_absent() -> None:
+    """BasicInfo에 college 키가 없으면 None (USAINT 미추출 시)."""
+    p = UserProfile.from_basic_info(
+        {"year": 2024, "grade": 1, "semester": 1, "department": "컴퓨터학부"}
+    )
+    assert p.college is None
+
+
+def test_from_basic_info_college_from_pydantic_model() -> None:
+    """BasicInfo(pydantic)에서 college 매핑."""
+    from soongpt_mcp.schemas.usaint_schemas import BasicInfo
+
+    basic = BasicInfo(
+        year=2024,
+        grade=2,
+        semester=3,
+        department="소프트웨어학부",
+        college="IT대학",
+    )
+    p = UserProfile.from_basic_info(basic)
+    assert p.college == "IT대학"
+
+
 def test_apply_partial_update_strips_double_major_whitespace() -> None:
     p = UserProfile()
     updated = p.apply_partial_update({"double_major": "  경영학과  "})

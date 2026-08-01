@@ -32,14 +32,23 @@ def isolated_profile_path(
 
 @pytest.fixture
 def stub_basic_info(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """_fetch_basic_info_via_session이 고정된 (BasicInfo, warnings) 반환하도록 stub."""
-    basic = BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부")
+    """_fetch_basic_info_via_session이 고정된 (BasicInfo, warnings) 반환하도록 stub.
+
+    SPR-55: college 포함 — USAINT에서 단과대가 제공된다.
+    """
+    basic = BasicInfo(
+        year=2023,
+        grade=3,
+        semester=5,
+        department="컴퓨터학부",
+        college="공과대학",
+    )
 
     async def fake_fetch() -> tuple[BasicInfo, list[str]]:
         return basic, []
 
     monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
-    return {"year": 2023, "grade": 3, "department": "컴퓨터학부"}
+    return {"year": 2023, "grade": 3, "department": "컴퓨터학부", "college": "공과대학"}
 
 
 @pytest.fixture
@@ -196,14 +205,16 @@ async def test_refresh_preserves_user_overrides(
 
     assert profile["student_id"] == "20240001"
     assert profile["name"] == "사용자가 입력한 이름"
-    assert profile["college"] == "사용자가 입력한 단과대"
     assert profile["track"] == "사용자가 입력한 트랙"
 
     assert profile["department"] == "컴퓨터학부"
     assert profile["grade"] == 3
     assert profile["entered_year"] == 2023
+    # SPR-55: college는 USAINT 제공 필드 — 사용자 수동 입력 대신 USAINT 값 우선
+    assert profile["college"] == "공과대학"
 
     assert sorted(result["refreshed_fields"]) == [
+        "college",
         "connected_major",
         "department",
         "double_major",
@@ -234,6 +245,70 @@ async def test_refresh_overwrites_teaching_fields(
 
     assert profile["teaching_certification"] is True
     assert profile["teaching_major"] == "컴퓨터교육"
+    assert profile["student_id"] == "20240001"
+
+
+@pytest.mark.asyncio
+async def test_refresh_overwrites_manual_college_with_usaint(
+    isolated_profile_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPR-55: USAINT college가 있으면 사용자 수동 입력 college를 덮어쓴다.
+
+    다른 USAINT 9필드와 동일한 정책(USAINT 우선). 기존엔 collage를 추출하지
+    않아 college가 항상 비어 있었지만, 이제 USAINT가 단과대를 제공한다.
+    """
+    existing = UserProfile(
+        student_id="20240001",
+        college="사용자가 직접 고른 단과대",
+        department="컴퓨터학부",
+    )
+    server.save_profile(existing)
+
+    basic = BasicInfo(
+        year=2023, grade=3, semester=5, department="컴퓨터학부", college="공과대학"
+    )
+
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, []
+
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
+
+    result = await server.refresh_user_profile(preserve_user_overrides=True)
+    profile = result["profile"]
+
+    assert profile["college"] == "공과대학"
+    assert profile["student_id"] == "20240001"
+    assert "college" in result["refreshed_fields"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_college_none_clears_manual_value(
+    isolated_profile_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """USAINT college가 없으면(이론상만) 기존 수동 입력도 None으로 정리.
+
+    다른 USAINT 필드와 일관된 동작 — USAINT를 진실 소스로 삼는다.
+    """
+    existing = UserProfile(
+        student_id="20240001",
+        college="사용자가 직접 고른 단과대",
+        department="컴퓨터학부",
+    )
+    server.save_profile(existing)
+
+    basic = BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부")
+
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, []
+
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
+
+    result = await server.refresh_user_profile(preserve_user_overrides=True)
+    profile = result["profile"]
+
+    assert profile["college"] is None
     assert profile["student_id"] == "20240001"
 
 
@@ -276,6 +351,8 @@ async def test_refresh_without_preserve_discards_user_fields(
     assert profile["department"] == "컴퓨터학부"
     assert profile["grade"] == 3
     assert profile["entered_year"] == 2023
+    # SPR-55: college도 USAINT 제공 필드라 reset 시 USAINT 값 유지
+    assert profile["college"] == "공과대학"
     assert result["reset_user_overrides"] is True
 
 

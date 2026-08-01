@@ -134,21 +134,21 @@ claude mcp list
 
 **과목명 매핑(SPR-47)**: `takenCourses`의 `subjects`가 코드+강의명을 인라인으로 들고 있으며(진실 소스), 응답의 `subjectNames`({코드: 강의명})는 매 호출마다 `subjects`에서 자동 파생됩니다(별도 저장 X). 재수강 대체과목 추천 코드 등 수강 이력이 없는 코드는 `subjectNames`에 없으니 코드 그대로 폴백 표시하세요.
 
-**USAINT가 채우는 필드** (8개): `department`, `grade`, `entered_year`, `double_major`(복수전공), `connected_major`(연계·융합전공), `minor`(부전공), `teaching_certification`(교직이수 여부), `teaching_major`(교직 전공명) — `get_usaint_snapshot()`/`refresh_user_profile`로 동기화
-**사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력 (사용자가 명시적으로 수정을 요청할 때)
+**USAINT가 채우는 필드** (9개): `department`, `college`(단과대, SPR-55), `grade`, `entered_year`, `double_major`(복수전공), `connected_major`(연계·융합전공), `minor`(부전공), `teaching_certification`(교직이수 여부), `teaching_major`(교직 전공명) — `get_usaint_snapshot()`/`refresh_user_profile`로 동기화
+**사용자 입력 필드** (3개): `student_id`, `name`, `track` — `set_user_profile`로 직접 입력 (사용자가 명시적으로 수정을 요청할 때)
 
 ### 워크플로우
 
 ```
 1. 처음: "시간표 짜자"
-   → get_usaint_snapshot() 호출 → USAINT에서 프로필(8필드)+수강이력 저장 (미스 시 ~9초)
-   → 학번/이름/단과대/트랙처럼 USAINT가 못 채우는 필드는 필요할 때 set_user_profile로 입력
+   → get_usaint_snapshot() 호출 → USAINT에서 프로필(9필드)+수강이력 저장 (미스 시 ~9초)
+   → 학번/이름/트랙처럼 USAINT가 못 채우는 필드는 필요할 때 set_user_profile로 입력
 
 2. 이후 재진입: get_usaint_snapshot()이 30일 캐시로 즉시 응답 (USAINT 재호출 없음)
 
 3. 휴학/복학/전과 후: "내 프로필 업데이트해줘"
    → refresh_user_profile(preserve_user_overrides=True)
-   → USAINT 8개 필드 갱신, 사용자가 입력한 학번/이름 등은 보존
+   → USAINT 9개 필드 갱신, 사용자가 입력한 학번/이름 등은 보존
 
 4. 수강이력 새로고침: "수강이력 새로 가져와"
    → get_usaint_snapshot(force_refresh=True)

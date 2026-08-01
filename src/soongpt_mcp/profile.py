@@ -1,8 +1,8 @@
 """사용자 프로필 스키마.
 
 학적 컨텍스트를 로컬에 저장해 매번 get_usaint_snapshot을 호출하지 않도록 한다.
-USAINT에서 가져올 수 없는 필드(학번/이름/단과대/트랙)는 사용자가 수동 입력하고,
-USAINT에서 추출 가능한 필드(주전공/학년/입학연도/복수·연계·부전공/교직)는
+USAINT에서 가져올 수 없는 필드(학번/이름/트랙)는 사용자가 수동 입력하고,
+USAINT에서 추출 가능한 필드(단과대/주전공/학년/입학연도/복수·연계·부전공/교직)는
 refresh_user_profile 또는 get_usaint_snapshot으로 덮어쓰기.
 
 SPR-46부터 프로필 영속화는 snapshot_cache.py의 학기별 스냅샷 파일
@@ -105,8 +105,9 @@ class UserProfile(BaseModel):
     def from_basic_info(cls, basic_info: Any) -> UserProfile:
         """USAINT BasicInfo(dict 또는 BaseModel)에서 프로필 생성.
 
-        매핑: department, grade, entered_year, double_major, connected_major,
-        minor, teaching_certification, teaching_major 추출. 나머지 필드는 None.
+        매핑: department, college, grade, entered_year, double_major,
+        connected_major, minor, teaching_certification, teaching_major 추출.
+        나머지 필드는 None.
 
         참고: BasicInfo.year는 fetchers.fetch_basic_info에서 admission_year를
         저장한 필드 — 현재 입학연도를 가리킴 (기준 연도가 아님).
@@ -114,6 +115,7 @@ class UserProfile(BaseModel):
         connected_major, sub_major — 모두 Optional).
         teaching_certification/teaching_major는 SPR-36에서 추가 (rusaint
         teaching_major.major_name — Optional).
+        college는 SPR-55에서 추가 (rusaint.collage — USAINT가 단과대 제공).
         """
         if hasattr(basic_info, "model_dump"):
             data = basic_info.model_dump()
@@ -126,6 +128,7 @@ class UserProfile(BaseModel):
 
         return cls(
             department=data.get("department"),
+            college=data.get("college"),
             grade=data.get("grade"),
             entered_year=data.get("year"),
             double_major=data.get("double_major"),

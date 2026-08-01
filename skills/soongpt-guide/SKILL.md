@@ -35,7 +35,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
 | 프로필 | `set_user_profile` | 단일 필드 수정 (학번/이름/단과대/학과/학년/트랙 등) | 사용자가 명시적 수정 요청 시 |
-| 프로필 | `refresh_user_profile` | USAINT 학적정보로 학과/학년/입학연도 등 8개 필드 재동기화 | 복학·전과 후 (프로필만 갱신) |
+| 프로필 | `refresh_user_profile` | USAINT 학적정보로 학과/단과대/학년/입학연도 등 9개 필드 재동기화 | 복학·전과 후 (프로필만 갱신) |
 | 인터뷰 | `get_interview` / `set_interview` / `list_interviews` | 이번 학기 선호(3섹션) 조회/저장, 전체 학기 목록 | `soongpt-interview` 내부에서 사용 |
 
 **스킬 4개** (모두 리포 `skills/` 하위):
@@ -48,7 +48,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 ### 1. 온보딩 (최초 1회)
 
-- "시간표 짜자" 같은 전체 흐름 진입 시 `soongpt-timetable-builder`가 `get_usaint_snapshot()`을 호출해 **프로필과 수강이력을 한 번에 확보**한다. USAINT가 못 채우는 학번/이름/단과대/트랙은 필요할 때 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다.
+- "시간표 짜자" 같은 전체 흐름 진입 시 `soongpt-timetable-builder`가 `get_usaint_snapshot()`을 호출해 **프로필과 수강이력을 한 번에 확보**한다. USAINT가 채우는 단과대까지 자동 확보되며(SPR-55), 그래도 비는 학번/이름/트랙은 필요할 때 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다.
 - 이때 USAINT 세션이 없으면 자동 로그인 흐름이 뜬다 (아래 [자동 로그인 흐름](#자동-로그인-흐름) 참고).
 - 휴학/복학/전과 후에는 "프로필 업데이트해줘"라고 하면 `refresh_user_profile(preserve_user_overrides=True)`로 USAINT 쪽 필드만 새로고침하고, 사용자가 직접 입력한 값은 보존한다.
 - `set_user_profile`은 **사용자가 명시적으로 프로필 수정을 요청했을 때만** 사용한다.
