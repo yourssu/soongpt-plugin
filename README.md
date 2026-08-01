@@ -94,7 +94,7 @@ claude mcp list
 - **보안**: 학번/비밀번호는 디스크에 저장되지 않음. OS 키체인만 사용
 - **가공 전 데이터 제공**: 데이터 해석/추천 로직은 Claude에게 맡김
 - **사용자 프로필 영속화**: 매번 USAINT를 호출하지 않고 학적 컨텍스트를 로컬에 저장
-- **13개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 교양선택 분야 목록, 강의 캐시 로드/저장, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
+- **14개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드/저장, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
 
 ## 도구
 
@@ -104,6 +104,7 @@ claude mcp list
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
+| `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분) | 즉시 |
 | `save_lectures_cache` | 스킬이 find_lectures N회 결과를 취합해 캐시로 적재 | 즉시 |
 | `load_department_map` | 학과-단과대 매핑 (로컬 캐시 → 번들 seed → 자동 빌드, `force_refresh` 옵션) | 캐시/seed hit 즉시 / 미스 ~10-20초 |
@@ -222,6 +223,19 @@ Claude Code 대화창에서:
   },
   "totalCount": N + M,
   ...
+}
+```
+
+### 교양필수 과목명 조회
+
+`list_required_electives(year, semester)`는 해당 학기에 개설된 교양필수 과목명 목록을 반환합니다. 과목명은 `[SW와AI]AI개발과실전`처럼 분야 접두가 붙은 것과 `한반도평화와통일`처럼 일반명이 섞여 있습니다. optional_elective의 `[‘NN이후]' 학번 태그와 달리 연도 태그가 없으므로 입학연도 필터링 없이 반환된 과목명 전체를 사용합니다. 각 과목명을 그대로 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`에 넘겨 해당 과목의 강의를 조회합니다.
+
+```python
+# 반환 스키마
+{
+  "lecture_names": ["[SW와AI]AI개발과실전", "한반도평화와통일", ...],
+  "count": 31,
+  "fetchTime": "2.70s"
 }
 ```
 

@@ -344,6 +344,35 @@ async def list_optional_elective_categories(year: int, semester: str) -> dict:
 
 
 @mcp.tool()
+async def list_required_electives(year: int, semester: str) -> dict:
+    """숭실대 USAINT 강의시간표에서 교양필수 과목명 목록을 가져옵니다.
+
+    과목명은 학기/학번에 따라 다름 (예: "[SW와AI]AI개발과실전", "한반도평화와통일").
+    해당 학기에 개설된 모든 교양필수 과목명을 반환하므로, 각 과목명을 그대로
+    ``find_lectures(category_type="required_elective", lecture_name=<과목명>)`` 에
+    넘겨 해당 과목의 강의 목록을 조회하면 됩니다. 입학연도 필터링은 필요하지
+    않습니다 (optional_elective의 '[‘NN이후]' 학번 태그와 달리 과목명에 연도 태그
+    없음).
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { lecture_names: [str, ...], count, fetchTime }
+
+    최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
+    세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
+    """
+    service = RusaintService()
+
+    async def call(session_json: str):
+        return await service.find_required_electives(
+            session_json, year=year, semester=semester
+        )
+
+    result = await _run_with_session(call)
+    return _jsonify(result)
+
+
+@mcp.tool()
 async def load_lectures_cache(year: int, semester: str) -> dict:
     """저장된 강의 캐시 로드. 스킬 진입 시 가장 먼저 호출해 캐시 히트 여부 확인.
 
