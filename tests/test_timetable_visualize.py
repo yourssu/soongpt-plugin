@@ -196,6 +196,23 @@ def test_fallback_uncertain_warns(fallback_renderer) -> None:
     assert any("파싱 실패" in w for w in warnings)
 
 
+def test_fallback_dedup_by_code(fallback_renderer) -> None:
+    """동일 code 중복 입력 → 최초 항목만 유지, 자기 자신과의 충돌 없음 (lib과 일치)."""
+    blocks, warnings = fallback_renderer.build_blocks(
+        [
+            _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                name="알고리즘(중복)",
+                schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)",
+            ),
+        ]
+    )
+    assert len(blocks) == 1
+    assert blocks[0].name == "알고리즘"
+    assert blocks[0].is_conflict is False
+    assert warnings == []
+
+
 # ── 레이아웃 / 시간축 헬퍼 ──────────────────────────────────────────────
 
 
@@ -215,6 +232,29 @@ def test_layout_day_side_by_side(renderer) -> None:
     cols = [c for c, _ in layout]
     assert len(set(cols)) == 2  # 서로 다른 열
     assert max(cols) + 1 == 2  # 최대 열수 2
+
+
+def test_layout_day_three_way_overlap(renderer) -> None:
+    """3개가 모두 겹치면 각각 다른 열에 배치 (최대 열수 3)."""
+    blocks, _ = renderer.build_blocks(
+        [
+            _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164204",
+                name="자료구조",
+                schedule_room="월 11:00-12:30 (숭덕 02108-박은영)",
+            ),
+            _lecture(
+                code="3161011001",
+                name="머신러닝",
+                schedule_room="월 11:30-13:00 (베어드홀 01201-김자헌)",
+            ),
+        ]
+    )
+    layout = renderer._layout_day(blocks)
+    cols = [c for c, _ in layout]
+    assert len(set(cols)) == 3  # 모두 서로 다른 열
+    assert max(cols) + 1 == 3  # 최대 열수 3
 
 
 def test_time_window_rounds_to_hour(renderer) -> None:
@@ -280,6 +320,9 @@ def test_render_html_marks_conflict(renderer) -> None:
     assert "conflict-badge" in html_str
     assert "시간 충돌" in html_str
     assert "알고리즘" in html_str and "자료구조" in html_str
+    # 요약의 <strong> 태그가 이스케이프되어 리터럴로 노출되지 않아야 한다 (회귀).
+    assert "<strong>시간 충돌" in html_str
+    assert "&lt;strong&gt;" not in html_str
 
 
 def test_render_html_escapes_user_data(renderer) -> None:

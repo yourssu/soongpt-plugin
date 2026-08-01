@@ -39,10 +39,8 @@ from typing import Any
 
 # ── soongpt_mcp.timetable_parsing 재사용 시도 (실패 시 내장 파서 폴백) ──
 try:
-    from soongpt_mcp.timetable_parsing import (
+    from soongpt_mcp.timetable_parsing import (  # noqa: I001
         find_conflicts as _lib_find_conflicts,
-    )
-    from soongpt_mcp.timetable_parsing import (
         parse_lectures as _lib_parse_lectures,
     )
 except Exception:  # noqa: BLE001 — 실행 환경(플러그인 venv 설치 여부)에 따라 달라짐
@@ -108,13 +106,18 @@ def _fallback_parse_lectures(lectures: list[dict]) -> list[dict]:
     timetable_parsing.parse_lectures와 동일 스펙: `\n`으로 연결된
     `요일(들) HH:MM-HH:MM (강의실-교수)` 블록을 정규식 1개로 파싱. 실패
     블록/비정상 구간은 건너뛰고 warnings로 보고 (uncertain 판정은 호출자).
+    동일 code가 여러 번 나오면 최초 항목을 유지한다 (다른 카테고리 중복 수집 정리).
     """
     result: list[dict] = []
+    seen: set[str] = set()
     for raw in lectures:
         code = raw.get("code")
         if not code:
             continue
         code = str(code)
+        if code in seen:
+            continue
+        seen.add(code)
         schedule_room = raw.get("schedule_room") or ""
         raw_blocks = [b.strip() for b in schedule_room.split("\n") if b.strip()]
 
@@ -347,11 +350,12 @@ def render_html(
             f"height:{height}px;"
         )
 
-    # 시간 축 라벨 (1시간 간격)
+    # 시간 축 라벨 (1시간 간격). window_end는 그리드 바깥 경계라 마지막 시간은 제외
+    # (하단 경계에 절반 걸리는 라벨 방지).
     hour_labels = [
         f'<div class="hour-label" style="top:{hour_label_px(hour)}px">'
         f"{hour:02d}:00</div>"
-        for hour in range(window_start // 60, window_end // 60 + 1)
+        for hour in range(window_start // 60, window_end // 60)
     ]
 
     header_cells = "".join(
@@ -412,6 +416,8 @@ def render_html(
         )
 
     # 요약 + 충돌 리포트
+    # summary_parts는 개수(정수)만으로 구성된 내부 문자열이라 사용자 데이터가 없다.
+    # esc()를 거치면 <strong> 태그가 리터럴로 노출되므로 escape하지 않는다.
     summary_parts = [f"총 {len(blocks)}개 수업 블록"]
     if conflict_blocks:
         summary_parts.append(
@@ -496,7 +502,7 @@ h3 {{ font-size: 13px; margin: 0 0 6px; }}
 </head>
 <body>
 <h1>{esc(title)}</h1>
-<div class="summary">{empty_note}{esc(" · ".join(summary_parts))}</div>
+<div class="summary">{empty_note}{" · ".join(summary_parts)}</div>
 <div class="legend">
   <span><span class="swatch normal"></span> 정상</span>
   <span><span class="swatch conflict"></span> 시간 충돌</span>
