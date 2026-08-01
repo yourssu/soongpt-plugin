@@ -265,6 +265,8 @@ Claude Code 대화창에서:
 - [EATSTEAK/rusaint](https://github.com/EATSTEAK/rusaint) — USAINT 스크래핑 라이브러리
 - [soongpt-backend](https://github.com/yourssu/soongpt-backend) — 숭피티 웹 서비스 백엔드 (스크래핑 로직 참고)
 
+> **버전 동기화**: 릴리스 시 `pyproject.toml`(`[project] version`)과 `.claude-plugin/plugin.json`(`version`) 버전을 함께 올려 일치시켜야 합니다.
+
 ## 라이선스
 
 MIT

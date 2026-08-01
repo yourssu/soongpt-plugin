@@ -69,7 +69,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   → `groups["major_double"]`에 저장
   - **단과대 획득**: `profile`에 복수/부전공 단과대 필드가 없으므로 `load_department_map(year)` 매핑 `{학과명: 단과대}`에서 역조회. `mapping[profile.double_major]`로 단과대 획득
   - 매핑에 키가 없으면 사용자에게 "복수전공 학과 {X}의 단과대가 어디야?" 직접 질문
-  - `load_department_map`은 3번 진입 시 **한 번만** 선행 호출하고 복수·부전공이 같은 매핑 결과를 재사용
+  - `load_department_map`은 **복수전공 또는 부전공이 있을 때만** 3번 진입 시 **한 번만** 선행 호출하고 두 카테고리가 같은 매핑 결과를 재사용 (둘 다 없으면 호출 불필요)
 
 - **부전공** (`profile.minor` 있을 때만):
   - 복수전공과 동일 패턴: `load_department_map` 역조회로 단과대 확보(실패 시 fallback 질문) →
@@ -89,7 +89,8 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
                 major=profile.connected_major)
   ```
   → 각각 `groups["connected_major"]`, `groups["united_major"]`에 저장
-  - **한쪽은 반드시 실패**: 사용자 이수가 연계면 `united_major`가, 융합이면 `connected_major`가 USAINT WebDynpro 예외(`Cannot find ... option in ...CONNECT_MAJO/UNMA...`)를 던짐. 빈 배열이 아니라 **예외**이며 3-D의 카테고리별 error 처리로 흡입(정상 무시). 다른 한쪽은 정상 강의 배열을 반환
+  - **일반적으로 한쪽이 실패**: 사용자 이수가 연계면 보통 `united_major`가, 융합이면 `connected_major`가 USAINT WebDynpro 예외(`Cannot find ... option in ...CONNECT_MAJO/UNMA...`)를 던짐. 빈 배열이 아니라 **예외**이며 3-D의 카테고리별 error 처리로 흡입(정상 무시). 정상 한쪽은 강의 배열을 반환. **두 쪽 모두 성공(예: 과목이 양쪽에 걸쳐 개설)하면 둘 다 저장**
+  - (런타임 검증은 임의 학과명으로 라우팅 건전성만 확인했으므로, 실제 이수자의 응답 패턴은 추후 검증 필요)
 
 #### 3-B. 교양선택 전체 분야 (10~15회 병렬)
 
@@ -158,6 +159,13 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
     "count": N,
     "error": null
   },
+  "major_minor": {  # minor 있을 때만
+    "category_type": "major",
+    "params": {"collage": "<부전공 단과대>", "department": "<minor>", "major": None},
+    "lectures": [...],
+    "count": N,
+    "error": null
+  },
   "connected_major": {  # connected_major 있을 때만
     "category_type": "connected_major",
     "params": {"major": "<connected_major>"},
@@ -168,9 +176,9 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   "united_major": {  # connected_major 있을 때만 (연계/융합 양쪽 시도)
     "category_type": "united_major",
     "params": {"major": "<connected_major>"},
-    "lectures": [],  # 이수가 연계면 이쪽은 빈 배열 또는 예외 — 정상 무시
+    "lectures": [],  # 이수가 연계면 이쪽은 예외 → 아래 error로 흡입(정상 무시)
     "count": 0,
-    "error": null
+    "error": "WebDynpro: Cannot find ... option in UNMA (연계 이수 시 융합 쪽은 예외 — 정상 무시)"
   },
   "optional_elective_[‘23이후]과학·기술": {
     "category_type": "optional_elective",
