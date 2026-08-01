@@ -18,6 +18,7 @@ from soongpt_mcp.timetable_cache import (
     TimetableCache,
     TimetableCandidate,
     add_candidate,
+    backup_corrupt_timetable_cache,
     clear_timetable_cache,
     load_timetable_cache,
     resolve_timetable_path,
@@ -279,6 +280,42 @@ def test_clear_removes_tmp_leftover(isolated_root: Path) -> None:
     assert not tmp.exists()
 
 
+def test_clear_oserror_returns_false(isolated_root: Path) -> None:
+    """unlink 실패(대상이 디렉토리) 시 예외 전파 없이 False 반환."""
+    target = isolated_root / "timetable_2026_1.json"
+    target.mkdir()  # 파일 대신 디렉토리 → unlink 시 OSError
+    assert clear_timetable_cache(2026, "1") is False
+    assert target.is_dir()  # 실패한 대상은 그대로 유지
+
+
+# ── 모듈: backup_corrupt_timetable_cache ───────────────────────────────
+
+
+def test_backup_corrupt_renames_and_returns_path(isolated_root: Path) -> None:
+    """손상 파일을 .corrupt-<타임스탬프>로 백업 이동."""
+    target = isolated_root / "timetable_2026_1.json"
+    garbage = "not json {{{"
+    target.write_text(garbage, encoding="utf-8")
+    backup = backup_corrupt_timetable_cache(2026, "1")
+    assert backup is not None
+    assert backup.name.startswith("timetable_2026_1.corrupt-")
+    assert backup.suffix == ".json"
+    assert not target.exists()
+    assert backup.exists()
+    assert backup.read_text(encoding="utf-8") == garbage
+
+
+def test_backup_corrupt_missing_returns_none(isolated_root: Path) -> None:
+    assert backup_corrupt_timetable_cache(2026, "1") is None
+
+
+def test_backup_corrupt_valid_file_noop(isolated_root: Path) -> None:
+    """정상 파일은 백업하지 않는다 (재검증 — load 실패 원인이 손상인지 확인)."""
+    save_timetable_cache(_sample_cache())
+    assert backup_corrupt_timetable_cache(2026, "1") is None
+    assert load_timetable_cache(2026, "1") is not None
+
+
 # ── server 도구: save→load roundtrip / clear→miss / code 검증 ───────────
 
 
@@ -365,6 +402,45 @@ async def test_server_clear_then_miss(isolated_root: Path) -> None:
     # 파일 삭제 후 clear 재호출 → cleared: false
     again = await server.clear_timetable_candidates(2026, "1")
     assert again == {"cleared": False}
+
+
+@pytest.mark.asyncio
+async def test_server_save_backs_up_corrupt_file(isolated_root: Path) -> None:
+    """손상된 기존 파일은 .corrupt-*로 백업되고 새 후보가 저장된다 (보존 약속 유지).
+
+    load → None → add_candidate(None) → os.replace로 덮어써도 사용자 산출물이
+    사라지지 않도록 백업 후 저장해야 한다.
+    """
+    _save_lectures_cache(isolated_root)
+    target = isolated_root / "timetable_2026_1.json"
+    garbage = "not json {{{"
+    target.write_text(garbage, encoding="utf-8")
+
+    saved = await server.save_timetable_candidate(2026, "1", _candidate())
+    assert saved["saved"] is True
+    assert "corrupt_replaced" in saved
+    backup_path = Path(saved["corrupt_replaced"])
+    assert backup_path.exists()
+    assert backup_path.read_text(encoding="utf-8") == garbage  # 손상 산출물 보존
+    # target은 새 정상 캐시로 다시 생성됨 (손상 내용은 백업으로 이동)
+    assert target.exists()
+    assert target.read_text(encoding="utf-8") != garbage
+
+    loaded = await server.load_timetable_candidates(2026, "1")
+    assert loaded["_cache"]["source"] == "hit"
+    assert len(loaded["candidates"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_server_save_valid_existing_no_corrupt_flag(isolated_root: Path) -> None:
+    """정상 기존 캐시가 있으면 corrupt_replaced 없이 저장."""
+    _save_lectures_cache(isolated_root)
+    await server.save_timetable_candidate(2026, "1", _candidate())
+    saved = await server.save_timetable_candidate(
+        2026, "1", _candidate(name="안 B — 12학점")
+    )
+    assert saved["saved"] is True
+    assert "corrupt_replaced" not in saved
 
 
 @pytest.mark.asyncio

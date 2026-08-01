@@ -69,6 +69,7 @@ from .snapshot_cache import (
 from .timetable_cache import (
     TimetableCandidate,
     add_candidate,
+    backup_corrupt_timetable_cache,
     clear_timetable_cache,
     load_timetable_cache,
     save_timetable_cache,
@@ -625,7 +626,8 @@ async def save_timetable_candidate(
     "lectures_cached_at": load_lectures_cache()._cache.cached_at}.
     기존 값과 merge되어 캐시에 저장됩니다 (재개 분기용).
 
-    반환: { saved: true, replaced: bool, count: int, path }
+    반환: { saved: true, replaced: bool, count: int, path } — 기존 파일이 손상돼
+    백업으로 옮겨졌으면 corrupt_replaced(백업 경로)가 추가됩니다 (보존 약속 유지).
     """
     parsed = TimetableCandidate.model_validate(candidate)
 
@@ -647,6 +649,11 @@ async def save_timetable_candidate(
         )
 
     existing = load_timetable_cache(year, semester)
+    # 손상 파일은 지우지 않고 .corrupt-<ts>로 백업한 뒤 새 캐시로 교체 —
+    # "파일은 보존됨" 약속이 다음 저장에서 깨지지 않게 한다.
+    corrupt_backup = None
+    if existing is None:
+        corrupt_backup = backup_corrupt_timetable_cache(year, semester)
     updated, replaced = add_candidate(
         existing, parsed, year=year, semester=semester
     )
@@ -655,12 +662,15 @@ async def save_timetable_candidate(
         merged.update(generation_params)
         updated = updated.model_copy(update={"generation_params": merged})
     target = save_timetable_cache(updated)
-    return {
+    result = {
         "saved": True,
         "replaced": replaced,
         "count": len(updated.candidates),
         "path": str(target),
     }
+    if corrupt_backup is not None:
+        result["corrupt_replaced"] = str(corrupt_backup)
+    return result
 
 
 @mcp.tool()

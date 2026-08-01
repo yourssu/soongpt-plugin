@@ -95,6 +95,28 @@ def load_timetable_cache(
     return cache
 
 
+def backup_corrupt_timetable_cache(
+    year: int, semester: str, path: Path | None = None
+) -> Path | None:
+    """손상된 후보 캐시 파일을 `.corrupt-<타임스탬프>`로 백업 이동.
+
+    `load_timetable_cache`가 None인데 파일이 실제로 존재하면 손상으로 간주한다.
+    저장 전에 이 함수로 백업하면, os.replace로 덮어써도 사용자 산출물(손상 파일)이
+    사라지지 않는다. 정상 파일이면 아무 일도 하지 않고 None을 반환한다.
+    반환: 백업 경로 (백업할 게 없으면 None).
+    """
+    target = path or resolve_timetable_path(year, semester)
+    if not target.exists():
+        return None
+    # load가 정상이면 손상이 아님 — 백업 불필요
+    if load_timetable_cache(year, semester, path=target) is not None:
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    backup = target.with_name(f"{target.stem}.corrupt-{stamp}{target.suffix}")
+    os.replace(target, backup)
+    return backup
+
+
 def save_timetable_cache(cache: TimetableCache, path: Path | None = None) -> Path:
     """후보 캐시 저장. atomic write (tmp → os.replace). 부모 디렉토리 자동 생성."""
     target = path or resolve_timetable_path(cache.year, cache.semester)
@@ -149,16 +171,23 @@ def add_candidate(
 
 
 def clear_timetable_cache(year: int, semester: str, path: Path | None = None) -> bool:
-    """후보 캐시 파일 삭제. 파일이 없으면 False, 삭제했으면 True.
+    """후보 캐시 파일 삭제. 파일이 없거나 삭제 실패 시 False.
 
-    atomic write 잔재(.json.tmp)가 남아 있으면 함께 정리한다.
+    atomic write 잔재(.json.tmp)가 남아 있으면 함께 정리한다 (best-effort).
+    symlink/권한 문제 등 OSError는 흡수해 예외가 전파되지 않게 한다.
     """
     target = path or resolve_timetable_path(year, semester)
     removed = False
     if target.exists():
-        target.unlink()
-        removed = True
+        try:
+            target.unlink()
+            removed = True
+        except OSError:
+            removed = False
     tmp = target.with_suffix(target.suffix + ".tmp")
     if tmp.exists():
-        tmp.unlink()
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
     return removed
