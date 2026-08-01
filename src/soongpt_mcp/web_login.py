@@ -22,6 +22,11 @@ PREFERRED_PORTS = (8765, 8766, 8767, 8768, 8769, 8770)
 HOST = "127.0.0.1"
 MAX_BODY_BYTES = 8192
 
+# 로그인 페이지는 정적 인라인 <style> 블록만 사용하므로 'unsafe-inline'을 허용.
+# 사용자 입력을 style에 주입하는 코드는 추가하지 말 것 (XSS 위험).
+# script-src 미지정 시 default-src 'self' fallback → 인라인 스크립트는 계속 차단됨.
+_CSP_HEADER = "default-src 'self'; style-src 'self' 'unsafe-inline'"
+
 _PAGE = """\
 <!doctype html>
 <html lang="ko">
@@ -218,7 +223,8 @@ class _LoginHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'")
+        # 인라인 <style> 허용을 위한 'unsafe-inline' — 무단 제거 금지 (정적 CSS 전용, _CSP_HEADER 주석 참조)
+        self.send_header("Content-Security-Policy", _CSP_HEADER)
         self.end_headers()
         self.wfile.write(encoded)
 

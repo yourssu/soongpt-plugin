@@ -71,6 +71,9 @@ def test_get_health_check_headers(login_server) -> None:
         assert resp.headers["Cache-Control"] == "no-store"
         assert resp.headers["X-Content-Type-Options"] == "nosniff"
         assert resp.headers["Content-Type"] == "text/html; charset=utf-8"
+        csp = resp.headers["Content-Security-Policy"]
+        assert "default-src 'self'" in csp
+        assert "style-src 'self' 'unsafe-inline'" in csp
 
 
 def test_post_invalid_csrf_returns_403(login_server) -> None:
