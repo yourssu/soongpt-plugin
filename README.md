@@ -100,7 +100,7 @@ claude mcp list
 
 | 도구 | 반환 데이터 | 소요 시간 |
 |---|---|---|
-| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시, 프로필 자동 저장) | 캐시 hit 즉시 / 미스 ~9초 |
+| `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 subjects 인라인), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시, 프로필 자동 저장). `subjectNames`는 subjects에서 자동 파생 | 캐시 hit 즉시 / 미스 ~9초 |
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
 | `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
@@ -125,6 +125,8 @@ claude mcp list
 **마이그레이션**: SPR-46 이전의 `profile_{year}_{semester}.json`(및 SPR-30의 `profile.json`)은 스냅샷 파일이 없을 때 자동 읽기 fallback → 다음 저장 시 스냅샷 파일로 이전.
 
 **캐시 TTL**: 수강이력은 학기 중 거의 불변하므로 30일. 만료/없으면 `get_usaint_snapshot()`이 USAINT에서 다시 fetch하고, `force_refresh=True`로 강제 새로고침할 수 있습니다.
+
+**과목명 매핑(SPR-47)**: `takenCourses`의 `subjects`가 코드+강의명을 인라인으로 들고 있으며(진실 소스), 응답의 `subjectNames`({코드: 강의명})는 매 호출마다 `subjects`에서 자동 파생됩니다(별도 저장 X). 재수강 대체과목 추천 코드 등 수강 이력이 없는 코드는 `subjectNames`에 없으니 코드 그대로 폴백 표시하세요.
 
 **USAINT가 채우는 필드** (8개): `department`, `grade`, `entered_year`, `double_major`(복수전공), `connected_major`(연계·융합전공), `minor`(부전공), `teaching_certification`(교직이수 여부), `teaching_major`(교직 전공명) — `get_usaint_snapshot()`/`refresh_user_profile`로 동기화
 **사용자 입력 필드** (4개): `student_id`, `name`, `college`, `track` — `set_user_profile`로 직접 입력 (사용자가 명시적으로 수정을 요청할 때)

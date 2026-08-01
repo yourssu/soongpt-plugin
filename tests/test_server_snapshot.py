@@ -1,7 +1,8 @@
-"""get_usaint_snapshot 캐시/저장 통합 테스트 (SPR-46).
+"""get_usaint_snapshot 캐시/저장 통합 테스트 (SPR-46 / SPR-47).
 
 프로필+수강이력 단일 SoT 스냅샷: fetch 시 저장, 캐시 hit 시 재호출 없음,
 force_refresh, 만료 재추출, 프로필 병합(사용자 입력 보존)을 검증한다.
+SPR-47: 응답 subjectNames가 takenCourses.subjects에서 파생됨을 검증한다.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from soongpt_mcp.profile import UserProfile
 from soongpt_mcp.schemas.usaint_schemas import (
     BasicInfo,
     Flags,
+    SubjectItem,
     TakenCourse,
     UsaintSnapshotResponse,
 )
@@ -43,10 +45,13 @@ def fixed_period(monkeypatch: pytest.MonkeyPatch) -> tuple[int, str]:
 def _make_snapshot(**overrides: Any) -> UsaintSnapshotResponse:
     defaults: dict[str, Any] = {
         "takenCourses": [
-            TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])
+            TakenCourse(
+                year=2025,
+                semester="1",
+                subjects=[SubjectItem(code="CSE1234", name="자료구조")],
+            )
         ],
         "lowGradeSubjectCodes": ["CSE1234"],
-        "subjectNames": {"CSE1234": "자료구조"},
         "flags": Flags(),
         "basicInfo": BasicInfo(
             year=2023, grade=3, semester=5, department="컴퓨터학부"
@@ -88,7 +93,9 @@ async def test_first_call_fetches_saves_and_returns_fresh(
 
     result = await server.get_usaint_snapshot()
     assert result["_cache"]["source"] == "fresh"
-    assert result["takenCourses"][0]["subjectCodes"] == ["CSE1234"]
+    assert result["takenCourses"][0]["subjects"] == [
+        {"code": "CSE1234", "name": "자료구조"}
+    ]
     assert result["lowGradeSubjectCodes"] == ["CSE1234"]
     assert result["basicInfo"]["department"] == "컴퓨터학부"
 
@@ -143,7 +150,13 @@ async def test_expired_cache_triggers_fetch(
         semester="1",
         profile=UserProfile(department="옛학과"),
         basicInfo=BasicInfo(year=2023, grade=3, semester=5, department="옛학과"),
-        takenCourses=[TakenCourse(year=2024, semester="2", subjectCodes=["OLD100"])],
+        takenCourses=[
+            TakenCourse(
+                year=2024,
+                semester="2",
+                subjects=[SubjectItem(code="OLD100", name=None)],
+            )
+        ],
         fetched_at=datetime.now(timezone.utc)
         - timedelta(days=sc.CACHE_TTL_DAYS + 1),
     )
@@ -193,7 +206,13 @@ async def test_cache_hit_returns_cached_profile_via_get_user_profile(
             semester="1",
             profile=UserProfile(department="컴퓨터학부", grade=3, entered_year=2023),
             basicInfo=BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부"),
-            takenCourses=[TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])],
+            takenCourses=[
+                TakenCourse(
+                    year=2025,
+                    semester="1",
+                    subjects=[SubjectItem(code="CSE1234", name="자료구조")],
+                )
+            ],
             fetched_at=datetime.now(timezone.utc),
         )
     )
@@ -239,7 +258,13 @@ async def test_refresh_user_profile_preserves_snapshot_academic_data(
                 department="컴퓨터학부", grade=3, entered_year=2023, student_id="20240001"
             ),
             basicInfo=BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부"),
-            takenCourses=[TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])],
+            takenCourses=[
+                TakenCourse(
+                    year=2025,
+                    semester="1",
+                    subjects=[SubjectItem(code="CSE1234", name="자료구조")],
+                )
+            ],
             fetched_at=datetime.now(timezone.utc),
         )
     )
@@ -263,5 +288,53 @@ async def test_refresh_user_profile_preserves_snapshot_academic_data(
     # 수동 입력 필드는 보존
     assert cache.profile.student_id == "20240001"
     # 수강이력/신선도는 그대로 유지
-    assert cache.takenCourses[0].subjectCodes == ["CSE1234"]
+    assert cache.takenCourses[0].subjects[0].code == "CSE1234"
     assert fetched_at is not None
+
+
+@pytest.mark.asyncio
+async def test_subject_names_derived_from_subjects(
+    isolated_root: Path,
+    fixed_period: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPR-47: 응답 subjectNames는 takenCourses.subjects에서 파생된다.
+
+    name이 None인 과목은 제외되고, 여러 학기에 중복된 코드는 한 번으로 수렴한다.
+    쓰기 진실 소스는 subjects 하나 — subjectNames는 매 응답마다 재파생된다.
+    """
+    snapshot = UsaintSnapshotResponse(
+        takenCourses=[
+            TakenCourse(
+                year=2025,
+                semester="1",
+                subjects=[
+                    SubjectItem(code="CSE1234", name="자료구조"),
+                    SubjectItem(code="CSE1235", name=None),  # 이름 없음 → 제외
+                ],
+            ),
+            TakenCourse(
+                year=2024,
+                semester="2",
+                subjects=[SubjectItem(code="CSE1234", name="자료구조")],  # 재수강 중복
+            ),
+        ],
+        lowGradeSubjectCodes=["CSE1234"],
+        flags=Flags(),
+        basicInfo=BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부"),
+        warnings=[],
+    )
+    _patch_service(monkeypatch, snapshot)
+
+    result = await server.get_usaint_snapshot()
+    assert result["_cache"]["source"] == "fresh"
+    # name=None 과목은 제외, 중복 코드는 수렴
+    assert result["subjectNames"] == {"CSE1234": "자료구조"}
+    # takenCourses는 subjects 인라인 구조 유지
+    assert result["takenCourses"][0]["subjects"][0] == {"code": "CSE1234", "name": "자료구조"}
+    assert result["takenCourses"][0]["subjects"][1] == {"code": "CSE1235", "name": None}
+
+    # 캐시 hit 시에도 동일하게 파생되는지 확인 (subjects가 진실 소스)
+    cached_result = await server.get_usaint_snapshot()
+    assert cached_result["_cache"]["source"] == "cache"
+    assert cached_result["subjectNames"] == {"CSE1234": "자료구조"}
