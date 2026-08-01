@@ -54,7 +54,7 @@ Claude Code 대화창에서:
 ### Codex
 
 ```
-codex plugin marketplace upgrade yourssu/soongpt-plugin
+codex plugin marketplace upgrade yourssu
 codex plugin add soongpt@yourssu
 ```
 
