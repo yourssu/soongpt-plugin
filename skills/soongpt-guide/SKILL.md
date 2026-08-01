@@ -1,6 +1,6 @@
 ---
 name: soongpt-guide
-description: soongpt-mcp 플러그인 사용법 안내 스킬 — 13개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
+description: soongpt-mcp 플러그인 사용법 안내 스킬 — 14개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
 ---
 
 # SoongPT Guide
@@ -20,7 +20,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 ## 플러그인 한눈에 보기
 
-숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **13개 도구 + 3개 워크플로우 스킬**로 구성.
+숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **14개 도구 + 3개 워크플로우 스킬**로 구성.
 
 | 그룹 | 도구 | 하는 일 | 보통 호출되는 방식 |
 |---|---|---|---|
@@ -28,6 +28,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | 학적/졸업 | `get_graduation_status` | 졸업요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시) | 직접 — "졸업요건 확인해줘", "몇 학점 남았어" |
 | 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색 | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
+| 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` / `save_lectures_cache` | 통합 조회한 강의 목록 캐시 로드/저장 (7일 TTL) | `soongpt-available-lectures` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
@@ -70,6 +71,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | "재수강하면 좋은 과목 추천해줘" | `get_usaint_snapshot()`의 저성적 과목 기반 추천 |
 | "이번 학기 전공필수 강의 보여줘" | `find_lectures(category_type="major", ...)` |
 | "이번 학기 교양선택 뭐 있어" | `list_optional_elective_categories()` |
+| "이번 학기 교양필수 뭐 있어" | `list_required_electives()` |
 | "이번 학기 들을 수 있는 과목 다 가져와" / "수업 후보 가져와" | 위임: `soongpt-available-lectures` |
 | "시간표 인터뷰 하자" / "이번 학기 계획 세울래" / "내 선호 물어봐" | 위임: `soongpt-interview` |
 | "시간표 짜줘" / "시간표 완성해줘" | 위임: `soongpt-timetable-builder` (전체 흐름 오케스트레이터) |

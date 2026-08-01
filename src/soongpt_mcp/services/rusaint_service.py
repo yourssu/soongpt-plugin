@@ -209,6 +209,17 @@ class RusaintService:
             session_json, year, semester
         )
 
+    async def find_required_electives(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> dict:
+        """교양필수 과목명 목록 조회. → CourseSchedule 서비스 위임."""
+        return await self._course_schedule.find_required_electives(
+            session_json, year, semester
+        )
+
     async def build_department_map(
         self,
         session_json: str,

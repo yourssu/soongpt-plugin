@@ -368,11 +368,62 @@ class RusaintCourseScheduleService:
         session_json: str,
         year: int,
         semester: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """해당 학기의 교양선택 분야 목록을 조회.
 
         반환: { categories: [str], count, fetchTime }
         분야명 예: "[‘23이후]과학·기술". 학번/학기에 따라 다름.
+        """
+        return await self._fetch_course_names(
+            session_json,
+            year,
+            semester,
+            app_method="optional_elective_categories",
+            label="교양선택 분야",
+            session_label="course_schedule_categories",
+            result_key="categories",
+        )
+
+    async def find_required_electives(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+    ) -> dict[str, Any]:
+        """해당 학기의 교양필수 과목명 목록을 조회.
+
+        `find_optional_elective_categories`와 동일 패턴. 반환된 과목명을 그대로
+        ``find_lectures(category_type="required_elective", lecture_name=...)`` 에
+        넘겨 해당 학기에 열리는 교양필수 강의를 조회할 수 있다.
+
+        반환: { lecture_names: [str], count, fetchTime }
+        과목명 예: "[SW와AI]AI개발과실전", "한반도평화와통일". 학기/학번에 따라 다름.
+        """
+        return await self._fetch_course_names(
+            session_json,
+            year,
+            semester,
+            app_method="required_electives",
+            label="교양필수 과목명",
+            session_label="course_schedule_required_electives",
+            result_key="lecture_names",
+        )
+
+    async def _fetch_course_names(
+        self,
+        session_json: str,
+        year: int,
+        semester: str,
+        app_method: str,
+        label: str,
+        session_label: str,
+        result_key: str,
+    ) -> dict[str, Any]:
+        """해당 학기의 이름 목록(교양선택 분야 / 교양필수 과목명) 조회 공용 흐름.
+
+        세션 복원 → CourseScheduleApplication 생성 → ``app.<app_method>(year, semester)``
+        → {result_key: [str], count, fetchTime}. 교양선택(optional_elective_categories)과
+        교양필수(required_electives)가 세션/에러 처리/응답 형태를 공유하므로 하나로 묶는다.
         """
         start_time = time.time()
 
@@ -384,16 +435,16 @@ class RusaintCourseScheduleService:
             )
 
         logger.info(
-            "유세인트 교양선택 분야 조회 시작: year=%d semester=%s",
-            year, semester,
+            "유세인트 %s 조회 시작: year=%d semester=%s",
+            label, year, semester,
         )
 
-        sessions: List[Tuple[str, Optional[rusaint.USaintSession]]] = []
+        sessions: list[tuple[str, rusaint.USaintSession | None]] = []
 
         try:
             session_start = time.time()
             session_obj = await session_module.create_session_from_json(session_json)
-            sessions = [("course_schedule_categories", session_obj)]
+            sessions = [(session_label, session_obj)]
             logger.info(f"세션 복원 완료: {time.time() - session_start:.2f}초")
 
             app_start = time.time()
@@ -401,18 +452,18 @@ class RusaintCourseScheduleService:
             logger.info(f"Application 생성 완료: {time.time() - app_start:.2f}초")
 
             data_start = time.time()
-            categories = await app.optional_elective_categories(year, semester_enum)
+            names = await getattr(app, app_method)(year, semester_enum)
             logger.info(f"데이터 조회 완료: {time.time() - data_start:.2f}초")
 
             total_time = time.time() - start_time
             logger.info(
-                "유세인트 교양선택 분야 조회 완료: %d건 (총 %.2f초)",
-                len(categories), total_time,
+                "유세인트 %s 조회 완료: %d건 (총 %.2f초)",
+                label, len(names), total_time,
             )
 
             return {
-                "categories": list(categories),
-                "count": len(categories),
+                result_key: list(names),
+                "count": len(names),
                 "fetchTime": f"{total_time:.2f}s",
             }
 
@@ -426,14 +477,14 @@ class RusaintCourseScheduleService:
                 exc_info=True,
             )
             raise RusaintInternalError(
-                f"유세인트 교양선택 분야 조회 중 오류: {type(e).__name__} - {str(e)}"
+                f"유세인트 {label} 조회 중 오류: {type(e).__name__} - {str(e)}"
             )
         except asyncio.TimeoutError:
             logger.error("유세인트 연결 시간 초과")
             raise RusaintTimeoutError("유세인트 서버 응답 시간이 초과되었습니다.")
         except Exception as e:
             logger.error(
-                f"유세인트 교양선택 분야 조회 중 예기치 않은 오류: {type(e).__name__} - {str(e)}",
+                f"유세인트 {label} 조회 중 예기치 않은 오류: {type(e).__name__} - {str(e)}",
                 exc_info=True,
             )
             raise RusaintInternalError(f"예기치 않은 오류: {type(e).__name__} - {str(e)}")

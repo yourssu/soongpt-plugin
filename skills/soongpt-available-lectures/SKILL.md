@@ -1,6 +1,6 @@
 ---
 name: soongpt-available-lectures
-description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주전공·복수/부전공 학과 전체 + 교양선택 전체 분야를 find_lectures로 병렬 fetch해 로컬 캐시에 적재. "이번 학기 들을 수 있는 과목", "수업 후보 가져와", "강의 다 가져와", "/soongpt-available-lectures"에서 호출. 이후 시간표 후보 생성 워크플로우의 입력.
+description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주전공·복수/부전공 학과 전체 + 교양선택 전체 분야 + 교양필수 전체 과목명을 find_lectures로 병렬 fetch해 로컬 캐시에 적재. "이번 학기 들을 수 있는 과목", "수업 후보 가져와", "강의 다 가져와", "/soongpt-available-lectures"에서 호출. 이후 시간표 후보 생성 워크플로우의 입력.
 ---
 
 # SoongPT Available Lectures
@@ -40,7 +40,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 ### 3. 카테고리 세트 판단 + 병렬 fetch
 
-스킬이 직접 `find_lectures`와 `list_optional_elective_categories`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행.
+스킬이 직접 `find_lectures`와 `list_optional_elective_categories`, `list_required_electives`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행.
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
@@ -92,7 +92,9 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   - **일반적으로 한쪽이 실패**: 사용자 이수가 연계면 보통 `united_major`가, 융합이면 `connected_major`가 USAINT WebDynpro 예외(`Cannot find ... option in ...CONNECT_MAJO/UNMA...`)를 던짐. 빈 배열이 아니라 **예외**이며 3-D의 카테고리별 error 처리로 흡입(정상 무시). 정상 한쪽은 강의 배열을 반환. **두 쪽 모두 성공(예: 과목이 양쪽에 걸쳐 개설)하면 둘 다 저장**
   - (런타임 검증은 임의 학과명으로 라우팅 건전성만 확인했으므로, 실제 이수자의 응답 패턴은 추후 검증 필요)
 
-#### 3-B. 교양선택 전체 분야 (10~15회 병렬)
+#### 3-B. 교양 전체 (선택 분야 + 필수 과목명 열거)
+
+##### 3-B-1. 교양선택 전체 분야 (10~15회 병렬)
 
 1. 분야 목록 조회:
    ```
@@ -108,6 +110,22 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
                  category="<분야명>")
    ```
    → `groups["optional_elective_<분야명>"]`에 저장
+
+##### 3-B-2. 교양필수 전체 과목명 (필수)
+
+1. 과목명 목록 조회:
+   ```
+   list_required_electives(year, semester)
+   ```
+2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출:
+   ```
+   find_lectures(year, semester, category_type="required_elective",
+                 lecture_name="<과목명>")
+   ```
+   → `groups["required_elective_<과목명>"]`에 저장
+   - optional_elective의 `[‘NN이후]` 학번 태그와 달리 교양필수 과목명은 **연도 태그가 없으므로 입학연도 필터링 없이 전부** 조회
+   - 과목명은 분야 접두(예: `[SW와AI]AI개발과실전`)와 일반명(예: `한반도평화와통일`)이 혼재. `list_required_electives`가 반환한 문자열을 그대로 `lecture_name`으로 사용 (수강대상 제한은 target 필드로 별도 활용)
+   - **빈 결과 처리**: 이번 학기 미개설 과목은 `find_lectures`가 빈 결과(`count: 0`)를 반환하므로, 그룹은 캐시에 저장하되 **결과 요약(4단계)에서 count 0 그룹은 제외**한다. 예외가 나면 기존 3-D의 error 흡입 규칙으로 빈 그룹 저장 (정상 무시)
 
 #### 3-C. 단일 카테고리 (2~3회 병렬)
 
@@ -187,6 +205,20 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
     "count": M,
     "error": null
   },
+  "required_elective_[SW와AI]AI개발과실전": {
+    "category_type": "required_elective",
+    "params": {"lecture_name": "[SW와AI]AI개발과실전"},
+    "lectures": [...],
+    "count": N,
+    "error": null
+  },
+  "required_elective_한반도평화와통일": {
+    "category_type": "required_elective",
+    "params": {"lecture_name": "한반도평화와통일"},
+    "lectures": [...],
+    "count": K,
+    "error": null
+  },
   "chapel": {
     "category_type": "chapel",
     "params": {"lecture_name": "채플"},
@@ -220,7 +252,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 사용자에게:
 - 총 강의 수 (모든 groups의 count 합)
-- 카테고리별 count (예: "주전공 45건, 타전공인정 12건, 교양선택 12분야 187건, 채플 3건, 사이버대 20건, 교직 8건")
+- 카테고리별 count (예: "주전공 45건, 타전공인정 12건, 교양선택 12분야 187건, 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
 - 실패한 카테고리 있으면 표시
 
 ### 5. 다음 단계 안내
@@ -251,5 +283,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   - 연계·융합: `profile.connected_major` 있을 때 (`connected_major` + `united_major` 양쪽 시도, 한쪽은 예외로 정상 무시)
   - 교직: `profile.teaching_certification == True`일 때
 - **채플 lecture_name 기본값**: "채플"로 폭넓게 검색. 사용자가 특정 채플명(비전채플 등)을 지정하면 그 이름으로 조회
+- **교양필수**: `list_required_electives`가 반환한 과목명 전체를 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`로 각각 조회. 연도 필터링 없음 (optional_elective와 달리 과목명에 학번 태그 없음)
+- **교양필수 그룹 키 재사용**: `groups["required_elective_<과목명>"]`의 `<과목명>`은 `list_required_electives`가 반환한 **원본 문자열을 그대로** 써야 한다 (대괄호 `[SW와AI]`, 괄호 `(...)`, `&` 등 특수문자 포함). 후속 소비자가 키를 재구성할 때는 캐시의 groups 키를 그대로 조회하거나, 해당 그룹의 `params.lecture_name`(원본 과목명)으로 역조회하라.
 - **인터뷰 결과 소비**: `subject_preferences`에서 필수 과목/관심 분야 추출해 우선 순위 반영 — **이 이슈에서는 보류**, 후속 PR
-- 스킬은 `find_lectures`와 `list_optional_elective_categories` MCP 도구만 소비. 오케스트레이션은 스킬(LLM)이 담당
+- 스킬은 `find_lectures`, `list_optional_elective_categories`, `list_required_electives` MCP 도구만 소비. 오케스트레이션은 스킬(LLM)이 담당
