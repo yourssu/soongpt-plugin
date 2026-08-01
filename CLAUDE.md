@@ -18,9 +18,11 @@
    - `.claude-plugin/plugin.json` → `version`
    - `pyproject.toml` → `[project].version`
    - `src/soongpt_mcp/__init__.py` → `__version__`
-2. `CHANGELOG.md`를 갱신한다:
-   - `[Unreleased]` 아래 쌓여 있던 항목들을 새 버전 섹션(`## [x.y.z] - YYYY-MM-DD`)으로 옮기고 날짜를 채운다.
-   - 그 사이 머지된 기능/수정 커밋을 Added/Changed/Fixed로 분류해 사람이 읽을 수 있는 한 줄 요약으로 정리한다 (SPR 번호가 있으면 같이 표기).
+2. `CHANGELOG.md`를 갱신한다 (기준은 이슈 번호가 아니라 **PR 번호**):
+   - `CHANGELOG.md`에서 직전 버전 섹션에 마지막으로 기록된 PR 번호(예: `#28`)를 확인한다.
+   - `gh pr list --state merged --limit 30 --json number,title`로 그 이후 머지된 PR을 조회한다.
+   - `[Unreleased]` 아래 쌓여 있던 항목들을 포함해, 새로 머지된 PR들을 새 버전 섹션(`## [x.y.z] - YYYY-MM-DD`)으로 옮기고 날짜를 채운다.
+   - 각 PR을 Added/Changed/Fixed로 분류해 사람이 읽을 수 있는 한 줄 요약으로 정리하고, 항목 끝에 PR 번호(`(#N)`)를 표기한다. PR 없이 main에 바로 커밋한 경우(문서 오타 수정 등)는 PR 번호 없이 적어도 된다.
    - `[Unreleased]`는 빈 섹션으로 남겨서 다음 변경사항을 계속 쌓을 수 있게 한다.
 3. (선택) `claude plugin tag --push` 로 `soongpt--v{version}` 태그를 생성해 릴리즈 지점을 남긴다. 이 명령은 `plugin.json`과 마켓플레이스 엔트리의 버전 일치 여부를 자동 검증해준다.
 

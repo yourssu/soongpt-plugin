@@ -1,4 +1,4 @@
-# soongpt-mcp
+# soongpt-plugin
 
 숭실대 USAINT(u-saint) 데이터를 Claude Code / Codex에서 가져오는 **로컬 MCP 서버**. [rusaint](https://github.com/EATSTEAK/rusaint) 라이브러리 기반.
 
