@@ -204,3 +204,64 @@ async def test_cache_hit_returns_cached_profile_via_get_user_profile(
     profile_result = await server.get_user_profile()
     assert profile_result["profile"]["department"] == "컴퓨터학부"
     assert profile_result["profile"]["grade"] == 3
+
+
+@pytest.mark.asyncio
+async def test_corrupted_cache_triggers_fetch(
+    isolated_root: Path,
+    fixed_period: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """손상된 스냅샷 파일은 miss로 처리되어 fetch로 폴백."""
+    (isolated_root / "snapshot_2026_1.json").write_text(
+        "not json {{{", encoding="utf-8"
+    )
+    counter: dict[str, int] = {"n": 0}
+    _patch_service(monkeypatch, _make_snapshot(), counter)
+
+    result = await server.get_usaint_snapshot()
+    assert counter["n"] == 1
+    assert result["_cache"]["source"] == "fresh"
+
+
+@pytest.mark.asyncio
+async def test_refresh_user_profile_preserves_snapshot_academic_data(
+    isolated_root: Path,
+    fixed_period: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """refresh_user_profile(프로필만 갱신)이 스냅샷의 수강이력/신선도를 보존."""
+    sc.save_snapshot_cache(
+        sc.SnapshotCache(
+            year=2026,
+            semester="1",
+            profile=UserProfile(
+                department="컴퓨터학부", grade=3, entered_year=2023, student_id="20240001"
+            ),
+            basicInfo=BasicInfo(year=2023, grade=3, semester=5, department="컴퓨터학부"),
+            takenCourses=[TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])],
+            fetched_at=datetime.now(timezone.utc),
+        )
+    )
+
+    basic = BasicInfo(
+        year=2024, grade=4, semester=7, department="소프트웨어학부"
+    )
+
+    async def fake_fetch() -> tuple[BasicInfo, list[str]]:
+        return basic, []
+
+    monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
+
+    await server.refresh_user_profile(preserve_user_overrides=True)
+
+    cache, fetched_at = sc.load_snapshot_cache(2026, "1")
+    assert cache is not None
+    # USAINT 8필드는 새 값으로 갱신
+    assert cache.profile.department == "소프트웨어학부"
+    assert cache.profile.grade == 4
+    # 수동 입력 필드는 보존
+    assert cache.profile.student_id == "20240001"
+    # 수강이력/신선도는 그대로 유지
+    assert cache.takenCourses[0].subjectCodes == ["CSE1234"]
+    assert fetched_at is not None

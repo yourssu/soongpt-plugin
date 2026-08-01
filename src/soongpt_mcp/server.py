@@ -59,6 +59,7 @@ from .services.rusaint_service import RusaintService
 from .session_manager import SessionError, get_session_manager
 from .snapshot_cache import (
     SnapshotCache,
+    cleanup_legacy_profiles,
     is_snapshot_cache_fresh,
     load_profile,
     load_snapshot_cache,
@@ -173,7 +174,8 @@ async def get_usaint_snapshot(force_refresh: bool = False) -> dict:
         warnings=snapshot.warnings,
         fetched_at=now,
     )
-    save_snapshot_cache(cache)
+    target = save_snapshot_cache(cache)
+    cleanup_legacy_profiles(year, semester, target)
     return _format_snapshot_response(cache, source="fresh", fetched_at=now, now=now)
 
 

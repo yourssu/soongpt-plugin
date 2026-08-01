@@ -30,7 +30,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 | 단계 | 확인 도구 | 스킵 조건 | 진행 조건 | 비고 |
 |---|---|---|---|---|
-| 1. 프로필·수강이력 | `get_usaint_snapshot()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 가져옴 — 그대로 사용) 또는 fetch 필요 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `set_user_profile`은 사용자가 명시적 수정 요청 시에만 |
+| 1. 프로필·수강이력 | `get_usaint_snapshot()` + `get_user_profile()` | 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | 하나라도 누락 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `college`는 USAINT 미제공 필드라 비면 사용자에게 물어 `set_user_profile`로 입력 |
 | 2. 졸업사정표 | `get_graduation_status()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 새로 가져옴) — 그대로 사용, 별도 조치 불필요 | `force_refresh=True`는 사용자가 "새로고침"을 명시했을 때만 |
 | 3. 인터뷰 | `get_interview(year, semester)` | `completion`의 3개 섹션(`semester_strategy`, `time_preferences`, `subject_preferences`) 모두 `true` | 하나라도 `false`/없음 | 위임 대상: `soongpt-interview`. 이어서/처음부터 여부는 하위 스킬이 판단 |
 | 4. 강의 캐시 | `load_lectures_cache(year, semester)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures` |
@@ -47,8 +47,10 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 - 이어서 `get_usaint_snapshot()` 호출 — 세션이 없으면 **브라우저 로그인 폼이 자동으로 열린다**. 응답의 `_cache.source`:
   - `"cache"`: 30일 이내 스냅샷 재사용 — 프로필+수강이력이 이미 로컬에 있음 (즉시)
   - `"fresh"`: 방금 USAINT에서 가져와 프로필·수강이력을 저장함 (~9초)
-- 스냅샷 호출 하나로 프로필·수강이력(`takenCourses`/`lowGradeSubjectCodes`/`subjectNames`)이 준비되므로, 별도 `get_user_profile()` 확인이나 `set_user_profile()` 보충 절차는 **필요 없다**.
-- 표시용 프로필(학과/학년/입학연도)은 `get_user_profile()`로 확인할 수 있다.
+- `get_user_profile()`로 핵심 필드(`department`, `grade`, `entered_year`, `college`)가 모두 채워졌는지 확인:
+  - `department`/`grade`/`entered_year`은 스냅샷이 채워준다.
+  - `college`(단과대)는 **USAINT가 제공하지 않는 필드**라 비어 있을 수 있다. 비어 있으면 사용자에게 물어 `set_user_profile("college", ...)`로 입력받는다.
+- 프로필·수강이력(`takenCourses`/`lowGradeSubjectCodes`/`subjectNames`)은 스냅샷 호출 하나로 준비되므로, 그 외 `set_user_profile()` 보충 절차는 필요 없다.
 - 프로필 수정은 **사용자가 명시적으로 요청할 때만** `set_user_profile(field, value)` 사용.
 - 수강이력을 "새로고침"해야 한다면 `get_usaint_snapshot(force_refresh=True)` 호출 (사용자가 명시했을 때만).
 

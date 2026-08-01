@@ -201,7 +201,7 @@ def save_profile(
 
     target = save_snapshot_cache(cache, path=path)
     if path is None:
-        _cleanup_legacy_profiles(year, semester, target)
+        cleanup_legacy_profiles(year, semester, target)
     return target
 
 
@@ -224,8 +224,11 @@ def _load_legacy_profile(path: Path) -> UserProfile | None:
         return None
 
 
-def _cleanup_legacy_profiles(year: int, semester: str, target: Path) -> None:
-    """스냅샷 저장 후 이전 프로필 파일 제거 (마이그레이션 완료 표시)."""
+def cleanup_legacy_profiles(year: int, semester: str, target: Path) -> None:
+    """스냅샷 저장 후 이전 프로필 파일 제거 (마이그레이션 완료 표시).
+
+    save_profile(프로필 수정)과 get_usaint_snapshot(fetch) 양쪽에서 호출한다.
+    """
     for legacy in (
         _legacy_profile_path(year, semester),
         _cache_root() / LEGACY_PROFILE_FILENAME,

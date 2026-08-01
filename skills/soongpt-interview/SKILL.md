@@ -190,6 +190,6 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 ## 비고
 
-- 프로필/졸업사정표는 학기별 스냅샷(`profile_{year}_{semester}.json`), 졸업사정표는 단일 캐시(`graduation.json`)
+- 프로필/수강이력은 학기별 스냅샷(`snapshot_{year}_{semester}.json`), 졸업사정표는 단일 캐시(`graduation.json`)
 - 인터뷰 결과는 후속 단계(들을 수 있는 과목 통합 조회, 시간표 후보 생성)의 주요 입력
 - 재수강 후보 확인(`subject_preferences` 3-D)은 `get_usaint_snapshot()`이 저장한 스냅샷 캐시의 `lowGradeSubjectCodes`/`subjectNames`(SPR-40, SPR-46) 사용 — 진입 절차에서 확보된 캐시를 재사용하며, 캐시가 없을 때만 `get_usaint_snapshot()` 호출
