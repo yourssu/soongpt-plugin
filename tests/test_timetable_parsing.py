@@ -125,6 +125,28 @@ def test_parse_night_time() -> None:
     assert slots[0].end_min == 22 * 60 + 15
 
 
+def test_parse_saturday_slot() -> None:
+    """토요일 슬롯 파싱."""
+    slots = parse_schedule_room("토 13:30-14:45 (베어드홀 01101-김자헌)")
+    assert len(slots) == 1
+    assert slots[0].days == ["토"]
+    assert slots[0].start_min == 13 * 60 + 30
+    assert slots[0].end_min == 14 * 60 + 45
+
+
+def test_parse_three_days() -> None:
+    """요일 3개 나열(월 수 금)."""
+    slots = parse_schedule_room("월 수 금 10:30-12:00 (베어드홀 01101-김자헌)")
+    assert len(slots) == 1
+    assert slots[0].days == ["월", "수", "금"]
+
+
+def test_parse_invalid_time_range_skipped() -> None:
+    """end <= start(23:00-00:30 자정 경유) 비정상 구간은 스킵."""
+    slots = parse_schedule_room("월 23:00-00:30 (베어드홀 01101-김자헌)")
+    assert slots == []
+
+
 def test_parse_failed_block_skipped() -> None:
     """포맷 불일치 블록은 슬롯으로 만들지 않는다 (uncertain은 호출자 판정)."""
     slots = parse_schedule_room("온라인 강의")
@@ -192,6 +214,18 @@ def test_parse_lectures_partial_failure_uncertain() -> None:
     parsed = parse_lectures([_lecture(schedule_room=raw)])
     assert parsed[0].parse_status == "uncertain"
     assert parsed[0].raw == raw
+
+
+def test_parse_lectures_invalid_time_range_uncertain() -> None:
+    """비정상 시간 구간(23:00-00:30) 포함 블록 → uncertain + 정상 슬롯만 유지."""
+    raw = (
+        "월 10:30-12:00 (베어드홀 01101-김자헌)\n"
+        "화 23:00-00:30 (베어드홀 01201-박은영)"
+    )
+    parsed = parse_lectures([_lecture(schedule_room=raw)])
+    assert parsed[0].parse_status == "uncertain"
+    assert len(parsed[0].slots) == 1
+    assert parsed[0].slots[0].days == ["월"]
 
 
 def test_parse_lectures_dedup_by_code() -> None:
@@ -369,6 +403,41 @@ def test_find_conflicts_skips_uncertain() -> None:
     assert find_conflicts([a, b]) == []
 
 
+def test_find_conflicts_multiple_slot_pairs() -> None:
+    """한 쌍이 월/화 두 구간에서 겹치면 슬롯쌍마다 Conflict 보고."""
+    a, b = _two(
+        _lecture(
+            code="2150164203",
+            schedule_room=(
+                "월 10:30-12:00 (베어드홀 01101-김자헌)\n"
+                "화 10:30-12:00 (베어드홀 01101-김자헌)"
+            ),
+        ),
+        _lecture(
+            code="2150164204",
+            schedule_room=(
+                "월 11:00-13:00 (베어드홀 01201-박은영)\n"
+                "화 11:00-13:00 (베어드홀 01201-박은영)"
+            ),
+        ),
+    )
+    conflicts = find_conflicts([a, b])
+    assert len(conflicts) == 2
+    assert {tuple(c.days) for c in conflicts} == {("월",), ("화",)}
+
+
+def test_find_conflicts_same_subject_hint() -> None:
+    """같은 subject_key(분반 중복 선택)면 메시지에 힌트 추가."""
+    a, b = _two(
+        _lecture(code="2150164203", schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+        _lecture(code="2150164204", schedule_room="월 10:30-12:00 (베어드홀 01201-박은영)"),
+    )
+    assert a.subject_key == b.subject_key == "21501642"
+    conflicts = find_conflicts([a, b])
+    assert len(conflicts) == 1
+    assert "과목 중복" in conflicts[0].message
+
+
 # ── server 도구: parse_lectures_cache / check_timetable_conflicts ──────
 
 
@@ -434,7 +503,8 @@ async def test_parse_lectures_cache_hit(isolated_root: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_parse_lectures_cache_stale(isolated_root: Path) -> None:
+async def test_parse_lectures_cache_stale_returns_data(isolated_root: Path) -> None:
+    """stale도 데이터 반환 + source만 표시 (load_lectures_cache 관례 통일)."""
     _save_cache(
         isolated_root,
         cached_at=datetime.now(timezone.utc)
@@ -442,8 +512,21 @@ async def test_parse_lectures_cache_stale(isolated_root: Path) -> None:
     )
     result = await server.parse_lectures_cache(2026, "1")
     assert result["_cache"]["source"] == "stale"
-    assert result["parsed"] == []
+    assert result["_cache"]["age_days"] >= cache_mod.CACHE_TTL_DAYS
+    assert result["stats"]["total"] == 3
+    assert len(result["parsed"]) == 3
     assert "guidance" in result
+    assert "7일" in result["guidance"]
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_miss_guidance_fill_cache(
+    isolated_root: Path,
+) -> None:
+    """miss guidance는 캐시 채우기 안내."""
+    result = await server.parse_lectures_cache(2026, "1")
+    assert result["_cache"]["source"] == "miss"
+    assert "save_lectures_cache" in result["guidance"]
 
 
 @pytest.mark.asyncio
@@ -469,7 +552,7 @@ async def test_check_timetable_conflicts_reports() -> None:
     )
     assert result["has_blocking_conflict"] is True
     assert len(result["conflicts"]) == 1
-    assert result["warnings"] and "불확정 슬롯 1개" in result["warnings"][0]
+    assert result["warnings"] and "불확정 강의 1개" in result["warnings"][0]
 
 
 @pytest.mark.asyncio

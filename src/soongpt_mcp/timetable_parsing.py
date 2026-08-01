@@ -111,8 +111,9 @@ def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
     """schedule_room 문자열을 TimeSlot 목록으로 파싱.
 
     `\n`(리터럴 개행)으로 연결된 블록을 순회해 포맷에 맞는 것만 슬롯으로 만든다.
-    파싱 실패한 블록은 건너뛴다 — 호출자(parse_lectures)가 raw 블록 수와 슬롯 수를
-    비교해 parse_status="uncertain"을 판정한다.
+    파싱 실패 블록과 비정상 시간 구간(종료<=시작, 예: 23:00-00:30 자정 경유)은
+    건너뛴다 — 호출자(parse_lectures)가 raw 블록 수와 슬롯 수를 비교해
+    parse_status="uncertain"을 판정한다.
     """
     slots: list[TimeSlot] = []
     for block in schedule_room.split("\n"):
@@ -135,11 +136,16 @@ def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
             room = content or None
             professor = None
 
+        start_min = _to_minutes(match.group("start"))
+        end_min = _to_minutes(match.group("end"))
+        if end_min <= start_min:
+            continue
+
         slots.append(
             TimeSlot(
                 days=days,
-                start_min=_to_minutes(match.group("start")),
-                end_min=_to_minutes(match.group("end")),
+                start_min=start_min,
+                end_min=end_min,
                 room=room,
                 professor=professor,
                 raw=block,
@@ -246,16 +252,6 @@ def has_time_conflict(a: ParsedLecture, b: ParsedLecture) -> bool:
     )
 
 
-def _first_overlapping_slots(
-    a: ParsedLecture, b: ParsedLecture
-) -> tuple[TimeSlot, TimeSlot] | None:
-    for slot_a in a.slots:
-        for slot_b in b.slots:
-            if _slots_overlap(slot_a, slot_b):
-                return slot_a, slot_b
-    return None
-
-
 def _build_conflict(
     a: ParsedLecture, b: ParsedLecture, slot_a: TimeSlot, slot_b: TimeSlot
 ) -> Conflict:
@@ -269,6 +265,10 @@ def _build_conflict(
         f"[{b.code}] {b.name or ''} ({slot_b.raw}) 가 "
         f"{'/'.join(overlap_days)} {_format_minutes(start_min)}-{_format_minutes(end_min)} 겹침"
     )
+    if a.subject_key == b.subject_key:
+        message += (
+            " (같은 과목 분반 중복 선택 — 시간 충돌이 아닌 과목 중복으로 처리)"
+        )
     return Conflict(
         code_a=a.code,
         name_a=a.name,
@@ -284,9 +284,10 @@ def _build_conflict(
 
 
 def find_conflicts(lectures: list[ParsedLecture]) -> list[Conflict]:
-    """후보 강의 목록에서 시간 충돌 쌍을 찾는다 (uncertain/empty 제외).
+    """후보 강의 목록에서 시간 충돌을 찾는다 (uncertain/empty 제외).
 
-    두 강의 사이 충돌은 첫 번째 겹치는 슬롯 쌍 기준 1개 Conflict로 보고한다.
+    Conflict 1건 = 겹치는 슬롯쌍 1개. 한 쌍이 여러 슬롯에서 겹치면(예: 월/화
+    둘 다 겹침) 겹치는 슬롯쌍마다 별도 Conflict로 보고한다.
     """
     conflicts: list[Conflict] = []
     count = len(lectures)
@@ -295,8 +296,8 @@ def find_conflicts(lectures: list[ParsedLecture]) -> list[Conflict]:
             a, b = lectures[i], lectures[j]
             if a.parse_status != "ok" or b.parse_status != "ok":
                 continue
-            pair = _first_overlapping_slots(a, b)
-            if pair is None:
-                continue
-            conflicts.append(_build_conflict(a, b, *pair))
+            for slot_a in a.slots:
+                for slot_b in b.slots:
+                    if _slots_overlap(slot_a, slot_b):
+                        conflicts.append(_build_conflict(a, b, slot_a, slot_b))
     return conflicts

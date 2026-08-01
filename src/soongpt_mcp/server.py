@@ -429,10 +429,11 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
     소스 = load_lectures_cache() 원본(schedule_room·target·field 포함)을
     파싱합니다. 별도 파싱 캐시는 없습니다 (저비용, 매번 재계산).
 
-    응답의 `_cache.source`:
-    - "cache": 캐시 hit (7일 이내). parsed/subject_groups 사용 가능
-    - "stale": 파일은 있으나 7일 경과. parsed 비움 + guidance (스킬이 갱신 필요)
-    - "miss": 파일 없음. parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
+    응답의 `_cache.source` (load_lectures_cache 관례와 동일):
+    - "cache": 캐시 hit (7일 이내)
+    - "stale": 파일은 있으나 7일 경과 — 데이터는 그대로 반환하고 source만 표시
+      (+ guidance로 새로고침 안내)
+    - "miss": 파일 없음 — parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
 
     반환: { year, semester, parsed: [ParsedLecture], subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
@@ -446,34 +447,26 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
 
-    def _empty(source: str) -> dict:
+    if cache is None or cached_at is None:
         return {
             "year": year,
             "semester": semester,
             "parsed": [],
             "subject_groups": {},
             "stats": {"total": 0, "parsed_ok": 0, "uncertain": 0, "empty": 0},
-            "_cache": {
-                "source": source,
-                "cached_at": cached_at.isoformat() if cached_at is not None else None,
-                "age_days": (now - cached_at).days if cached_at is not None else None,
-            },
+            "_cache": {"source": "miss", "cached_at": None, "age_days": None},
             "guidance": (
-                "save_lectures_cache로 먼저 채우세요 "
-                "(soongpt-available-lectures 스킬이 find_lectures 결과를 취합해 저장)"
+                "저장된 강의 캐시가 없습니다. save_lectures_cache로 먼저 채워주세요 "
+                "(soongpt-available-lectures 스킬이 find_lectures 결과를 취합해 저장)."
             ),
         }
 
-    if cache is None or cached_at is None:
-        return _empty("miss")
-    if not is_lectures_cache_fresh(cached_at, now):
-        return _empty("stale")
-
+    source = "cache" if is_lectures_cache_fresh(cached_at, now) else "stale"
     all_lectures: list[dict] = []
     for group in cache.groups.values():
         all_lectures.extend(group.lectures)
     parsed = parse_lectures(all_lectures)
-    return {
+    response = {
         "year": year,
         "semester": semester,
         "parsed": _jsonify(parsed),
@@ -485,11 +478,14 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
             "empty": sum(1 for p in parsed if p.parse_status == "empty"),
         },
         "_cache": {
-            "source": "cache",
+            "source": source,
             "cached_at": cached_at.isoformat(),
             "age_days": (now - cached_at).days,
         },
     }
+    if source == "stale":
+        response["guidance"] = "강의 데이터가 7일 지났어요. 새로고침할까요?"
+    return response
 
 
 @mcp.tool()
@@ -515,7 +511,7 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     warnings: list[str] = []
     if skipped:
         warnings.append(
-            f"불확정 슬롯 {len(skipped)}개 (uncertain/empty): "
+            f"불확정 강의 {len(skipped)}개 (uncertain/empty): "
             f"{', '.join(skipped)} — 충돌 검사에서 제외"
         )
     conflicts = find_conflicts(parsed)
