@@ -14,7 +14,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 ### Claude Code로 설치
 
-Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-guide`)을 한 번에 설치합니다:
+Claude Code 대화창에서 아래 명령으로 MCP 서버 + 5개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-timetable-composer`, `soongpt-guide`)을 한 번에 설치합니다:
 
 ```
 /plugin marketplace add yourssu/soongpt-plugin
@@ -28,7 +28,7 @@ Claude Code 대화창에서 아래 명령으로 MCP 서버 + 4개 스킬(`soongp
 
 ### Codex로 설치
 
-이 저장소는 [Codex](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 4개 스킬을 Codex에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
+이 저장소는 [Codex](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 5개 스킬을 Codex에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
 
 ```
 codex plugin marketplace add yourssu/soongpt-plugin
@@ -94,7 +94,7 @@ claude mcp list
 - **보안**: 학번/비밀번호는 디스크에 저장되지 않음. OS 키체인만 사용
 - **가공 전 데이터 제공**: 데이터 해석/추천 로직은 Claude에게 맡김
 - **사용자 프로필 영속화**: 매번 USAINT를 호출하지 않고 학적 컨텍스트를 로컬에 저장
-- **14개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드/저장, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
+- **19개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드/저장, 시간표 파싱/충돌 검사, 시간표 후보 로드/저장/삭제, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
 
 ## 도구
 
@@ -107,6 +107,11 @@ claude mcp list
 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분) | 즉시 |
 | `save_lectures_cache` | 스킬이 find_lectures N회 결과를 취합해 캐시로 적재 | 즉시 |
+| `parse_lectures_cache` | 강의 캐시를 시간표 파싱 결과로 변환 — parsed + subject_groups(분반 그룹) + stats | 즉시 |
+| `check_timetable_conflicts` | 단일 후보 강의 리스트의 시간 충돌 검사 (30개 초과 시 오류) | 즉시 |
+| `load_timetable_candidates` | 저장된 시간표 후보 로드 (TTL 없음, `_cache.source`로 hit/miss 구분) | 즉시 |
+| `save_timetable_candidate` | 후보 1건 저장 — code 존재 검증, 같은 name이면 replace | 즉시 |
+| `clear_timetable_candidates` | 저장된 시간표 후보 삭제 ("다시 짜자") | 즉시 |
 | `load_department_map` | 학과-단과대 매핑 (로컬 캐시 → 번들 seed → 자동 빌드, `force_refresh` 옵션) | 캐시/seed hit 즉시 / 미스 ~10-20초 |
 | `get_user_profile` | 저장된 사용자 프로필 (없으면 안내) | 즉시 |
 | `set_user_profile` | 단일 필드 부분 업데이트 (학번/이름/단과대/학과/학년/트랙/입학연도/복수전공/연계융합전공/부전공/교직이수여부/교직전공) | 즉시 |

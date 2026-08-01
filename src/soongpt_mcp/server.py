@@ -66,6 +66,14 @@ from .snapshot_cache import (
     save_profile,
     save_snapshot_cache,
 )
+from .timetable_cache import (
+    TimetableCandidate,
+    add_candidate,
+    backup_corrupt_timetable_cache,
+    clear_timetable_cache,
+    load_timetable_cache,
+    save_timetable_cache,
+)
 from .timetable_parsing import (
     ParsedLecture,
     build_subject_groups,
@@ -467,7 +475,9 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
     반환: { year, semester, parsed: [ParsedLecture], subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
     parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
-    LLM 판단용 pass-through(target/field/professor/division/department)를 담습니다.
+    LLM 판단용 pass-through(target/field/professor/division/department/category/
+    sub_category — 이수구분 판단은 category: "교필"/"전기-"/"전필-"/"전선-"/
+    "교선"/"교직")를 담습니다.
     subject_groups = dedup 후 parsed 기준 {subject_key(code[:-2]): [code 목록]}
     인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서 조회하세요.
 
@@ -549,6 +559,133 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         "has_blocking_conflict": bool(conflicts),
         "warnings": warnings,
     }
+
+
+@mcp.tool()
+async def load_timetable_candidates(year: int, semester: str) -> dict:
+    """저장된 시간표 후보 목록 로드.
+
+    컴포저(soongpt-timetable-composer)가 save_timetable_candidate로 저장한 후보를
+    로드합니다. 재개 시 후보 확인 + generation_params(인터뷰/강의 캐시 스냅샷)로
+    mismatch 판정에 사용합니다. TTL은 없습니다 — clear로만 무효화.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { year, semester, candidates: [TimetableCandidate], generation_params,
+            _cache: {source: "hit"|"miss", saved_at} } — miss 시 candidates:[] +
+            guidance (새로 조합 안내)
+    """
+    cache = load_timetable_cache(year, semester)
+    if cache is None:
+        return {
+            "year": year,
+            "semester": semester,
+            "candidates": [],
+            "generation_params": {},
+            "_cache": {"source": "miss", "saved_at": None},
+            "guidance": (
+                "저장된 후보가 없습니다. soongpt-timetable-composer로 새로 조합하세요 "
+                "(또는 builder가 '시간표 짜줘'로 진입하면 5단계에서 자동 위임)."
+            ),
+        }
+    return {
+        "year": cache.year,
+        "semester": cache.semester,
+        "candidates": _jsonify(cache.candidates),
+        "generation_params": cache.generation_params,
+        "_cache": {
+            "source": "hit",
+            "saved_at": cache.cached_at.isoformat(),
+        },
+    }
+
+
+@mcp.tool()
+async def save_timetable_candidate(
+    year: int,
+    semester: str,
+    candidate: dict,
+    generation_params: dict | None = None,
+) -> dict:
+    """시간표 후보 1건 저장.
+
+    후보의 `lecture_codes`가 강의 캐시(load_lectures_cache)에 존재하는 code인지
+    검증합니다 — LLM이 code를 전사하며 생기는 오류를 여기서 차단합니다.
+    같은 `name`의 기존 후보가 있으면 교체(replace)하고, 없으면 append합니다
+    (수정 반복 시 폐기 후보가 축적되지 않게).
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    candidate 필드: name(str, 후보 이름), lecture_codes(list[str]),
+    total_credits(float), has_blocking_conflict(bool), conflicts_summary(str,
+    check_timetable_conflicts의 warnings 포함 필수), notes(str=""), confirmed(bool,
+    사용자 확정 시 True), created_at(선택 — 기본값 서버 시각)
+
+    generation_params (선택): 재개 시 mismatch 판정용 생성 스냅샷 —
+    {"interview_updated_at": get_interview().interview.updated_at,
+    "lectures_cached_at": load_lectures_cache()._cache.cached_at}.
+    기존 값과 merge되어 캐시에 저장됩니다 (재개 분기용).
+
+    반환: { saved: true, replaced: bool, count: int, path } — 기존 파일이 손상돼
+    백업으로 옮겨졌으면 corrupt_replaced(백업 경로)가 추가됩니다 (보존 약속 유지).
+    """
+    parsed = TimetableCandidate.model_validate(candidate)
+
+    # code 존재 검증 (중요①) — parse_lectures_cache의 code를 그대로 썼는지 확인
+    lectures_cache, _ = _load_lectures_cache_file(year, semester)
+    known_codes: set[str] = set()
+    if lectures_cache is not None:
+        for group in lectures_cache.groups.values():
+            for lecture in group.lectures:
+                code = lecture.get("code")
+                if code:
+                    known_codes.add(str(code))
+    missing = [code for code in parsed.lecture_codes if code not in known_codes]
+    if missing:
+        raise ValueError(
+            f"후보 lecture_codes 중 강의 캐시에 없는 code가 있습니다: "
+            f"{', '.join(missing)}. parse_lectures_cache의 parsed[].code를 "
+            f"그대로 사용하세요 (save_lectures_cache로 먼저 캐시를 채워야 합니다)."
+        )
+
+    existing = load_timetable_cache(year, semester)
+    # 손상 파일은 지우지 않고 .corrupt-<ts>로 백업한 뒤 새 캐시로 교체 —
+    # "파일은 보존됨" 약속이 다음 저장에서 깨지지 않게 한다.
+    corrupt_backup = None
+    if existing is None:
+        corrupt_backup = backup_corrupt_timetable_cache(year, semester)
+    updated, replaced = add_candidate(
+        existing, parsed, year=year, semester=semester
+    )
+    if generation_params:
+        merged = dict(updated.generation_params)
+        merged.update(generation_params)
+        updated = updated.model_copy(update={"generation_params": merged})
+    target = save_timetable_cache(updated)
+    result = {
+        "saved": True,
+        "replaced": replaced,
+        "count": len(updated.candidates),
+        "path": str(target),
+    }
+    if corrupt_backup is not None:
+        result["corrupt_replaced"] = str(corrupt_backup)
+    return result
+
+
+@mcp.tool()
+async def clear_timetable_candidates(year: int, semester: str) -> dict:
+    """저장된 시간표 후보를 삭제합니다.
+
+    "다시 짜자"처럼 후보를 처음부터 다시 조합할 때 호출합니다. 파일이 없어도
+    오류 없이 cleared: false를 반환합니다.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+
+    반환: { cleared: bool }
+    """
+    cleared = clear_timetable_cache(year, semester)
+    return {"cleared": cleared}
 
 
 def run() -> None:
