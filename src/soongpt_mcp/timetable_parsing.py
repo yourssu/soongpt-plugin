@@ -1,0 +1,302 @@
+"""강의 schedule_room 문자열 파싱 + 시간 충돌 검사 (순수 모듈).
+
+세션/캐시/네트워크에 의존하지 않는 순수 함수만 담는다. 이 모듈의 출력은
+시간표 조합 스킬(LLM)이 후보 생성을 위해 소비한다.
+
+파싱 스펙 (검증된 잠금 범위 — 이 로직만 지원):
+1. schedule_room 단일 포맷: `요일(들) HH:MM-HH:MM (강의실-교수)`.
+   `\n`(리터럴 개행)으로 다중블록 연결. 정규식 1개로 파싱.
+2. 시간 충돌 = 분 단위 비교 (요일 교집합 + 구간 겹침). 10/15/50/75분 간격
+   혼재, 야간(22:15)까지.
+3. 강의실/교수 분리 = 괄호 안 `rfind('-')`(마지막 하이픈). 강의실 내
+   하이픈/괄호, 강의실 없음, 교수 결측 전부 처리.
+4. 과목 그룹키(분반) = `code[:-2]`. name으로 묶지 말 것 (같은 name 다른 학과
+   별개 수업 존재). 단 code 길이가 10이 아닐 때(구 과목코드 등)는
+   `code[:-2]` 의미가 깨질 수 있어 parse_warnings로 경고.
+5. dedup = code 전체 기준. 동일 과목이 여러 카테고리에서 중복 수집 정리.
+6. 빈 schedule_room(온라인/학점 0) → parse_status="empty" (충돌 검사 패스).
+7. 학점(time_points) = `"학점/시수"` 앞 숫자(float). 학점 0(사회봉사) 존재.
+8. 파싱 실패 줄 → raw 보존 + parse_status="uncertain" → 충돌 검사 건너뜀.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+_WEEKDAY_ORDER = ("월", "화", "수", "목", "금", "토", "일")
+
+# 포맷: 요일(들)[공백]HH:MM-HH:MM (강의실-교수)
+# content는 greedy로 마지막 ')'까지 — 강의실 안 괄호(예: 01101-3(융합실습실)) 지원.
+_SCHEDULE_ROOM_RE = re.compile(
+    r"(?P<days>(?:[월화수목금토일]\s*)+)\s*"
+    r"(?P<start>\d{1,2}:\d{2})\s*-\s*(?P<end>\d{1,2}:\d{2})\s*"
+    r"\((?P<content>.+)\)$"
+)
+
+ParseStatus = Literal["ok", "uncertain", "empty"]
+
+
+def _to_minutes(hhmm: str) -> int:
+    """'HH:MM' → 자정 이후 분 (예: '10:30' → 630)."""
+    hours, minutes = hhmm.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _format_minutes(minutes: int) -> str:
+    """분 → 'HH:MM' (예: 630 → '10:30')."""
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+class TimeSlot(BaseModel):
+    """단일 강의 블록의 시간/장소 슬롯."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    days: list[str]
+    start_min: int
+    end_min: int
+    room: str | None
+    professor: str | None
+    raw: str
+
+
+class ParsedLecture(BaseModel):
+    """강의 1개의 파싱 결과. LLM 판단 입력(target/field 등)을 pass-through.
+
+    - parse_status: "ok"(정상 파싱) | "uncertain"(파싱 실패 줄 존재, 충돌 검사 제외)
+      | "empty"(빈 schedule_room, 충돌 검사 패스)
+    - subject_key = code[:-2] (분반 그룹키)
+    - target/field/professor/division/department: 원본 Lecture에서 그대로 전달 —
+      수강 가능 판단(target 자연어 해석, field 학번 매칭 등)은 LLM 몫.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    name: str | None
+    subject_key: str
+    credits: float | None
+    slots: list[TimeSlot]
+    parse_status: ParseStatus
+    parse_warnings: list[str]
+    raw: str | None
+    # LLM 판단용 pass-through (원본 Lecture 필드)
+    target: str | None = None
+    field: str | None = None
+    professor: str | None = None
+    division: str | None = None
+    department: str | None = None
+
+
+class Conflict(BaseModel):
+    """두 강의 사이 시간 충돌 1건. days/start_min/end_min은 겹치는 구간."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code_a: str
+    name_a: str | None
+    code_b: str
+    name_b: str | None
+    days: list[str]
+    start_min: int
+    end_min: int
+    slot_a_raw: str
+    slot_b_raw: str
+    message: str
+
+
+def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
+    """schedule_room 문자열을 TimeSlot 목록으로 파싱.
+
+    `\n`(리터럴 개행)으로 연결된 블록을 순회해 포맷에 맞는 것만 슬롯으로 만든다.
+    파싱 실패한 블록은 건너뛴다 — 호출자(parse_lectures)가 raw 블록 수와 슬롯 수를
+    비교해 parse_status="uncertain"을 판정한다.
+    """
+    slots: list[TimeSlot] = []
+    for block in schedule_room.split("\n"):
+        block = block.strip()
+        if not block:
+            continue
+        match = _SCHEDULE_ROOM_RE.match(block)
+        if match is None:
+            continue
+
+        days = [d for d in re.findall(r"[월화수목금토일]", match.group("days"))]
+        content = match.group("content").strip()
+        room: str | None
+        professor: str | None
+        hyphen = content.rfind("-")
+        if hyphen >= 0:
+            room = content[:hyphen].strip() or None
+            professor = content[hyphen + 1 :].strip() or None
+        else:
+            room = content or None
+            professor = None
+
+        slots.append(
+            TimeSlot(
+                days=days,
+                start_min=_to_minutes(match.group("start")),
+                end_min=_to_minutes(match.group("end")),
+                room=room,
+                professor=professor,
+                raw=block,
+            )
+        )
+    return slots
+
+
+def extract_credits(time_points: str | None) -> float | None:
+    """'학점/시수' 문자열에서 학점(앞 숫자) 추출. 예: '3/3' → 3.0, '0/1' → 0.0.
+
+    None/빈 문자열/숫자 시작이 아니면 None (합산에서 제외).
+    """
+    if not time_points:
+        return None
+    match = re.match(r"\s*(\d+(?:\.\d+)?)", str(time_points))
+    if match is None:
+        return None
+    return float(match.group(1))
+
+
+def parse_lectures(lectures: list[dict[str, Any]]) -> list[ParsedLecture]:
+    """원본 강의 dict 목록을 ParsedLecture 목록으로 변환 (dedup by code).
+
+    - schedule_room이 없는 dict나 code가 없는 dict는 건너뛴다.
+    - 동일 code가 여러 번 나오면 최초 항목을 유지 (다른 카테고리 중복 수집 정리).
+    - subject_key = code[:-2] (10자리 가정; 길이가 다르면 parse_warnings 경고).
+    """
+    seen: dict[str, ParsedLecture] = {}
+    for raw in lectures:
+        code = raw.get("code")
+        if not code:
+            continue
+        code = str(code)
+        if code in seen:
+            continue
+
+        schedule_room = raw.get("schedule_room") or ""
+        raw_blocks = [b.strip() for b in schedule_room.split("\n") if b.strip()]
+        slots = parse_schedule_room(schedule_room)
+
+        warnings: list[str] = []
+        if not raw_blocks:
+            status: ParseStatus = "empty"
+        elif len(slots) != len(raw_blocks):
+            status = "uncertain"
+            warnings.append(
+                f"schedule_room 파싱 실패 줄 존재 (raw {len(raw_blocks)}블록 중 "
+                f"{len(slots)}블록만 파싱됨): {code}"
+            )
+        else:
+            status = "ok"
+
+        subject_key = code[:-2]
+        if len(code) != 10:
+            warnings.append(
+                f"code 길이 {len(code)}자 (10자리 아님) — subject_key=code[:-2] "
+                f"의미가 깨질 수 있음: {code}"
+            )
+
+        seen[code] = ParsedLecture(
+            code=code,
+            name=raw.get("name"),
+            subject_key=subject_key,
+            credits=extract_credits(raw.get("time_points")),
+            slots=slots,
+            parse_status=status,
+            parse_warnings=warnings,
+            raw=schedule_room or None,
+            target=raw.get("target"),
+            field=raw.get("field"),
+            professor=raw.get("professor"),
+            division=raw.get("division"),
+            department=raw.get("department"),
+        )
+    return list(seen.values())
+
+
+def build_subject_groups(parsed: list[ParsedLecture]) -> dict[str, list[str]]:
+    """subject_key → [해당 subject_key의 모든 code] 인덱스.
+
+    dedup 후 parsed 기준으로 계산한 편의 인덱스. 컴포저는 이 인덱스로 분반 그룹을
+    잡고, 각 code로 parsed에서 ParsedLecture를 조회한다.
+    """
+    groups: dict[str, list[str]] = {}
+    for lecture in parsed:
+        groups.setdefault(lecture.subject_key, []).append(lecture.code)
+    return groups
+
+
+def _slots_overlap(sa: TimeSlot, sb: TimeSlot) -> bool:
+    """요일 교집합 + 분 단위 구간 겹침. 인접 경계(종료==시작)는 충돌 아님."""
+    if not (set(sa.days) & set(sb.days)):
+        return False
+    return sa.start_min < sb.end_min and sb.start_min < sa.end_min
+
+
+def has_time_conflict(a: ParsedLecture, b: ParsedLecture) -> bool:
+    """두 강의가 시간 충돌하는지. uncertain/empty는 검사에서 제외(False)."""
+    if a.parse_status != "ok" or b.parse_status != "ok":
+        return False
+    return any(
+        _slots_overlap(slot_a, slot_b) for slot_a in a.slots for slot_b in b.slots
+    )
+
+
+def _first_overlapping_slots(
+    a: ParsedLecture, b: ParsedLecture
+) -> tuple[TimeSlot, TimeSlot] | None:
+    for slot_a in a.slots:
+        for slot_b in b.slots:
+            if _slots_overlap(slot_a, slot_b):
+                return slot_a, slot_b
+    return None
+
+
+def _build_conflict(
+    a: ParsedLecture, b: ParsedLecture, slot_a: TimeSlot, slot_b: TimeSlot
+) -> Conflict:
+    overlap_days = sorted(
+        set(slot_a.days) & set(slot_b.days), key=_WEEKDAY_ORDER.index
+    )
+    start_min = max(slot_a.start_min, slot_b.start_min)
+    end_min = min(slot_a.end_min, slot_b.end_min)
+    message = (
+        f"[{a.code}] {a.name or ''} ({slot_a.raw}) 과 "
+        f"[{b.code}] {b.name or ''} ({slot_b.raw}) 가 "
+        f"{'/'.join(overlap_days)} {_format_minutes(start_min)}-{_format_minutes(end_min)} 겹침"
+    )
+    return Conflict(
+        code_a=a.code,
+        name_a=a.name,
+        code_b=b.code,
+        name_b=b.name,
+        days=overlap_days,
+        start_min=start_min,
+        end_min=end_min,
+        slot_a_raw=slot_a.raw,
+        slot_b_raw=slot_b.raw,
+        message=message,
+    )
+
+
+def find_conflicts(lectures: list[ParsedLecture]) -> list[Conflict]:
+    """후보 강의 목록에서 시간 충돌 쌍을 찾는다 (uncertain/empty 제외).
+
+    두 강의 사이 충돌은 첫 번째 겹치는 슬롯 쌍 기준 1개 Conflict로 보고한다.
+    """
+    conflicts: list[Conflict] = []
+    count = len(lectures)
+    for i in range(count):
+        for j in range(i + 1, count):
+            a, b = lectures[i], lectures[j]
+            if a.parse_status != "ok" or b.parse_status != "ok":
+                continue
+            pair = _first_overlapping_slots(a, b)
+            if pair is None:
+                continue
+            conflicts.append(_build_conflict(a, b, *pair))
+    return conflicts

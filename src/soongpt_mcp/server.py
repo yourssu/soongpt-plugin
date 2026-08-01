@@ -66,6 +66,12 @@ from .snapshot_cache import (
     save_profile,
     save_snapshot_cache,
 )
+from .timetable_parsing import (
+    ParsedLecture,
+    build_subject_groups,
+    find_conflicts,
+    parse_lectures,
+)
 
 mcp = MCPServer("soongpt-mcp")
 
@@ -413,6 +419,110 @@ async def save_lectures_cache(year: int, semester: str, groups: dict) -> dict:
         "count": len(cache.groups),
         "saved_at": cache.cached_at.isoformat(),
         "path": str(target),
+    }
+
+
+@mcp.tool()
+async def parse_lectures_cache(year: int, semester: str) -> dict:
+    """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
+
+    소스 = load_lectures_cache() 원본(schedule_room·target·field 포함)을
+    파싱합니다. 별도 파싱 캐시는 없습니다 (저비용, 매번 재계산).
+
+    응답의 `_cache.source`:
+    - "cache": 캐시 hit (7일 이내). parsed/subject_groups 사용 가능
+    - "stale": 파일은 있으나 7일 경과. parsed 비움 + guidance (스킬이 갱신 필요)
+    - "miss": 파일 없음. parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
+
+    반환: { year, semester, parsed: [ParsedLecture], subject_groups,
+            stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
+    parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
+    LLM 판단용 pass-through(target/field/professor/division/department)를 담습니다.
+    subject_groups = dedup 후 parsed 기준 {subject_key(code[:-2]): [code 목록]}
+    인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서 조회하세요.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+    """
+    cache, cached_at = _load_lectures_cache_file(year, semester)
+    now = datetime.now(timezone.utc)
+
+    def _empty(source: str) -> dict:
+        return {
+            "year": year,
+            "semester": semester,
+            "parsed": [],
+            "subject_groups": {},
+            "stats": {"total": 0, "parsed_ok": 0, "uncertain": 0, "empty": 0},
+            "_cache": {
+                "source": source,
+                "cached_at": cached_at.isoformat() if cached_at is not None else None,
+                "age_days": (now - cached_at).days if cached_at is not None else None,
+            },
+            "guidance": (
+                "save_lectures_cache로 먼저 채우세요 "
+                "(soongpt-available-lectures 스킬이 find_lectures 결과를 취합해 저장)"
+            ),
+        }
+
+    if cache is None or cached_at is None:
+        return _empty("miss")
+    if not is_lectures_cache_fresh(cached_at, now):
+        return _empty("stale")
+
+    all_lectures: list[dict] = []
+    for group in cache.groups.values():
+        all_lectures.extend(group.lectures)
+    parsed = parse_lectures(all_lectures)
+    return {
+        "year": year,
+        "semester": semester,
+        "parsed": _jsonify(parsed),
+        "subject_groups": build_subject_groups(parsed),
+        "stats": {
+            "total": len(parsed),
+            "parsed_ok": sum(1 for p in parsed if p.parse_status == "ok"),
+            "uncertain": sum(1 for p in parsed if p.parse_status == "uncertain"),
+            "empty": sum(1 for p in parsed if p.parse_status == "empty"),
+        },
+        "_cache": {
+            "source": "cache",
+            "cached_at": cached_at.isoformat(),
+            "age_days": (now - cached_at).days,
+        },
+    }
+
+
+@mcp.tool()
+async def check_timetable_conflicts(lectures: list[dict]) -> dict:
+    """단일 후보 강의 리스트의 시간 충돌을 검사합니다.
+
+    입력: parse_lectures_cache의 parsed 항목(ParsedLecture dict) 리스트.
+    단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
+    (전수 비교/O(N²) 우회 및 의미론 혼란 방지).
+
+    반환: { conflicts: [Conflict], has_blocking_conflict: bool, warnings: [str] }
+    Conflict는 겹치는 요일(days)과 구간(start_min/end_min) + 원본 슬롯 문자열을
+    담습니다. uncertain/empty 슬롯은 충돌 검사에서 건너뛰고 warnings로 보고합니다.
+    """
+    if len(lectures) > 30:
+        raise ValueError(
+            f"lectures는 단일 후보 강의 리스트만 허용합니다 (30개 이하). "
+            f"전달: {len(lectures)}개. 전수 비교 금지 — 1회 1후보만 전달하세요."
+        )
+
+    parsed = [ParsedLecture.model_validate(item) for item in lectures]
+    skipped = [p.code for p in parsed if p.parse_status != "ok"]
+    warnings: list[str] = []
+    if skipped:
+        warnings.append(
+            f"불확정 슬롯 {len(skipped)}개 (uncertain/empty): "
+            f"{', '.join(skipped)} — 충돌 검사에서 제외"
+        )
+    conflicts = find_conflicts(parsed)
+    return {
+        "conflicts": _jsonify(conflicts),
+        "has_blocking_conflict": bool(conflicts),
+        "warnings": warnings,
     }
 
 
