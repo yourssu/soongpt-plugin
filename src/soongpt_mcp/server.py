@@ -647,18 +647,26 @@ async def _fetch_basic_info_via_session() -> tuple[Any, list[str]]:
 
 
 def _merge_profile_from_basic_info(basic_info: Any) -> UserProfile:
-    """USAINT basicInfo를 프로필에 병합 (USAINT 8필드만 덮어쓰기).
+    """USAINT basicInfo를 프로필에 병합 (USAINT 9필드만 덮어쓰기).
 
-    기존 프로필의 학번/이름/단과대/트랙 등 사용자 입력 필드는 보존하고,
-    USAINT가 제공하는 8개 필드(department, grade, entered_year, double_major,
-    connected_major, minor, teaching_certification, teaching_major)만 갱신.
-    get_usaint_snapshot과 refresh_user_profile이 공용으로 사용한다.
+    기존 프로필의 학번/이름/트랙 등 사용자 입력 필드는 보존하고,
+    USAINT가 제공하는 9개 필드(department, college, grade, entered_year,
+    double_major, connected_major, minor, teaching_certification,
+    teaching_major)만 갱신. get_usaint_snapshot과 refresh_user_profile이
+    공용으로 사용한다.
+
+    college 병합 정책: 다른 USAINT 필드와 동일하게 **USAINT 값을 우선
+    덮어쓴다**. SPR-55 이전엔 USAINT collage를 추출하지 않아 college가 항상
+    비어 사용자 수동 입력에 의존했지만, 이제 USAINT가 단과대를 제공하므로
+    USAINT를 진실 소스로 삼는다. fresh.college가 None(이론상만)이면 기존
+    수동 입력도 None으로 정리 — 다른 필드와 일관된 동작.
     """
     fresh = UserProfile.from_basic_info(basic_info)
     existing = load_profile() or UserProfile()
     merged = existing.model_copy(
         update={
             "department": fresh.department,
+            "college": fresh.college,
             "grade": fresh.grade,
             "entered_year": fresh.entered_year,
             "double_major": fresh.double_major,
@@ -720,10 +728,13 @@ async def set_user_profile(field: str, value: Any) -> dict:
 async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     """USAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
 
-    preserve_user_overrides=True(기본)면 USAINT가 제공하는 8개 필드
-    (department, grade, entered_year, double_major, connected_major, minor,
-    teaching_certification, teaching_major)를 항상 USAINT 값으로 덮어쓰고,
-    나머지 필드(student_id, name, college, track)는 기존 저장값을 보존합니다.
+    preserve_user_overrides=True(기본)면 USAINT가 제공하는 9개 필드
+    (department, college, grade, entered_year, double_major, connected_major,
+    minor, teaching_certification, teaching_major)를 항상 USAINT 값으로
+    덮어쓰고, 나머지 필드(student_id, name, track)는 기존 저장값을 보존합니다.
+
+    college도 USAINT에서 추출 가능하므로(SPR-55) 기존 사용자 수동 입력
+    college가 있어도 USAINT 값을 우선 덮어씁니다.
 
     False면 기존 프로필을 무시하고 USAINT 값만으로 새 프로필을 만듭니다
     (비-USAINT 필드는 모두 None으로 리셋).
@@ -737,6 +748,7 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     fresh = UserProfile.from_basic_info(basic_info)
     refreshed = [
         "department",
+        "college",
         "grade",
         "entered_year",
         "double_major",

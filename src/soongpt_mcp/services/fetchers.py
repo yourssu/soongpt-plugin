@@ -24,12 +24,17 @@ from soongpt_mcp.schemas.usaint_schemas import (
 logger = logging.getLogger(__name__)
 
 
-def _clean_optional_major(value: Any) -> str | None:
-    """복수/연계/융합 전공 문자열 정규화 — None 또는 공백이면 None."""
+def _clean_optional_text(value: Any) -> str | None:
+    """Optional 문자열 정규화 — None 또는 공백이면 None."""
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _clean_optional_major(value: Any) -> str | None:
+    """복수/연계/융합 전공 문자열 정규화 — None 또는 공백이면 None."""
+    return _clean_optional_text(value)
 
 
 async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
@@ -90,6 +95,9 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
             logger.error("학과 정보를 찾을 수 없습니다")
             raise ValueError("필수 학적 정보(학과)를 조회할 수 없습니다")
 
+        # SPR-55: 단과대 추출 (rusaint.collage — USAINT에서 제공됨, Optional)
+        college = _clean_optional_text(getattr(student_info, "collage", None))
+
         # SPR-35: 복수전공/연계·융합전공/부전공 추출 (Optional, 없으면 None)
         double_major = _clean_optional_major(getattr(student_info, "plural_major", None))
         connected_major = _clean_optional_major(
@@ -117,6 +125,7 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
             grade=grade,
             semester=semester,
             department=department,
+            college=college,
             double_major=double_major,
             connected_major=connected_major,
             minor=minor,

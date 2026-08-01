@@ -180,15 +180,28 @@ async def test_profile_merge_preserves_user_fields(
     server.save_profile(
         UserProfile(student_id="20240001", name="사용자이름", college="IT대학")
     )
-    _patch_service(monkeypatch, _make_snapshot())
+    _patch_service(
+        monkeypatch,
+        _make_snapshot(
+            basicInfo=BasicInfo(
+                year=2023,
+                grade=3,
+                semester=5,
+                department="컴퓨터학부",
+                college="공과대학",
+            )
+        ),
+    )
 
     await server.get_usaint_snapshot()
     profile = sc.load_profile(2026, "1")
     assert profile is not None
+    # 학번/이름은 사용자 입력 보존
     assert profile.student_id == "20240001"
     assert profile.name == "사용자이름"
-    assert profile.college == "IT대학"
-    # USAINT 8필드는 스냅샷 값으로 덮어씀
+    # SPR-55: college는 USAINT 제공 필드 — USAINT 값으로 덮어씀
+    assert profile.college == "공과대학"
+    # USAINT 9필드는 스냅샷 값으로 덮어씀
     assert profile.department == "컴퓨터학부"
     assert profile.grade == 3
 
@@ -338,3 +351,35 @@ async def test_subject_names_derived_from_subjects(
     cached_result = await server.get_usaint_snapshot()
     assert cached_result["_cache"]["source"] == "cache"
     assert cached_result["subjectNames"] == {"CSE1234": "자료구조"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_response_exposes_college_in_basic_info(
+    isolated_root: Path,
+    fixed_period: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPR-55: get_usaint_snapshot 응답 basicInfo에 college(단과대) 노출.
+
+    BasicInfo에 college가 추가되면 _format_snapshot_response가 자동 반영.
+    fresh/캐시 hit 양쪽에서 노출되는지 확인.
+    """
+    snapshot = _make_snapshot(
+        basicInfo=BasicInfo(
+            year=2023,
+            grade=3,
+            semester=5,
+            department="컴퓨터학부",
+            college="공과대학",
+        )
+    )
+    _patch_service(monkeypatch, snapshot)
+
+    result = await server.get_usaint_snapshot()
+    assert result["_cache"]["source"] == "fresh"
+    assert result["basicInfo"]["college"] == "공과대학"
+    assert result["basicInfo"]["department"] == "컴퓨터학부"
+
+    cached_result = await server.get_usaint_snapshot()
+    assert cached_result["_cache"]["source"] == "cache"
+    assert cached_result["basicInfo"]["college"] == "공과대학"

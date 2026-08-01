@@ -68,6 +68,9 @@ class BasicInfo(BaseModel):
     grade: int = Field(..., ge=1, le=4, description="학년 (1~4)")
     semester: int = Field(..., ge=1, le=8, description="재학 누적 학기 (1~8)")
     department: str = Field(..., description="주전공 학과명")
+    college: str | None = Field(
+        None, description="단과대 (rusaint.collage — SPR-55에서 추출)"
+    )
     double_major: Optional[str] = Field(
         None, description="복수전공 학과명 (rusaint.plural_major)"
     )
