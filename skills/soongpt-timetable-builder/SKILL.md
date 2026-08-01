@@ -1,6 +1,6 @@
 ---
 name: soongpt-timetable-builder
-description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 인사+로그인+프로필·수강이력 확보(get_usaint_snapshot) → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(확장 지점, 미구현) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
+description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 인사+로그인+프로필·수강이력 확보(get_usaint_snapshot) → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(soongpt-timetable-composer 위임) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
 ---
 
 # SoongPT Timetable Builder
@@ -20,9 +20,9 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 2. 졸업사정표 확인
 3. 인터뷰 진행 — 위임: `soongpt-interview`
 4. 들을 수 있는 과목 통합 조회 — 위임: `soongpt-available-lectures`
-5. 시간표 후보 생성 — **확장 지점 (아직 미구현)**
+5. 시간표 후보 생성 — 위임: `soongpt-timetable-composer`
 
-이 스킬의 스코프는 1~4단계 라우팅까지다. 5단계는 안내만 하고 종료한다.
+이 스킬의 스코프는 1~5단계 **라우팅**까지다. 5단계는 판단 없이 `soongpt-timetable-composer`로 무조건 위임한다.
 
 ## 진입/스킵 결정 규칙표
 
@@ -34,7 +34,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 | 2. 졸업사정표 | `get_graduation_status()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 새로 가져옴) — 그대로 사용, 별도 조치 불필요 | `force_refresh=True`는 사용자가 "새로고침"을 명시했을 때만 |
 | 3. 인터뷰 | `get_interview(year, semester)` | `completion`의 3개 섹션(`semester_strategy`, `time_preferences`, `subject_preferences`) 모두 `true` | 하나라도 `false`/없음 | 위임 대상: `soongpt-interview`. 이어서/처음부터 여부는 하위 스킬이 판단 |
 | 4. 강의 캐시 | `load_lectures_cache(year, semester)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures` |
-| 5. 시간표 후보 생성 | (해당 스킬 없음) | — | — | [확장 지점](#5-시간표-후보-생성-확장-지점) 참고 |
+| 5. 시간표 후보 생성 | `load_timetable_candidates(year, semester)` | 후보 없음 (`_cache.source == "miss"`) → composer에 **신규 조합** 위임 | **후보 존재 (`source == "hit"`)** → composer에 **무조건 재개 위임** | **"만족" 판정은 builder가 할 수 없다**(치명②) — 후보 존재 시 composer가 10단계에서 인터뷰/강의 캐시 mismatch 판정을 한다. 위임 대상: `soongpt-timetable-composer` |
 
 `year`/`semester`는 현재 학기 기준: 1~7월="1", 8~12월="2".
 
@@ -72,11 +72,12 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 - `"stale"`이면 사용자에게 새로고침 여부를 물어본 뒤 결정, `"miss"`면 바로 위임
 - 위임 시 `soongpt-available-lectures` 스킬이 전체 진입 절차(프로필 필수 필드 체크 포함)를 처음부터 수행
 
-### 5. 시간표 후보 생성 (확장 지점)
+### 5. 시간표 후보 생성 (위임: `soongpt-timetable-composer`)
 
-- 아직 이 스킬 없음. 4단계 완료 후 다음과 같이 안내하고 종료:
-  > "여기까지가 지금 준비된 단계야. 실제 시간표 후보를 짜주는 스킬은 아직 없어서, 여기서 마무리할게."
-- 향후 시간표 후보 생성 스킬이 추가되면 4단계 완료 직후 자동으로 그 스킬에 연결한다. 스킬 이름/트리거는 해당 이슈에서 결정되므로 여기서는 연결 지점만 예약해둔다.
+- `load_timetable_candidates(year, semester)` 호출
+- 스킵 조건(후보 없음)이면 `soongpt-timetable-composer`에 **신규 조합** 위임
+- 후보가 있으면 `soongpt-timetable-composer`에 **무조건 재개 위임** — "만족" 여부를 builder가 판단하지 않는다. composer가 10단계에서 인터뷰/강의 캐시 `generation_params` mismatch를 판정해 "새로 짤까? 이어서 볼래?"를 사용자에게 묻는다.
+- 이 스킬은 라우팅만 한다. 후보 조합 로직, 안내 순서, 충돌 검사, 영속화는 전부 composer 문서를 따른다.
 
 ## 부분 요청 처리 (빠른 위임)
 
@@ -94,9 +95,10 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 1. `get_usaint_snapshot()` / `get_graduation_status()`로 1~2단계 상태 재확인 (캐시 기반이라 비용 적음)
 2. `get_interview(year, semester)`의 `completion`으로 3단계 상태 확인
 3. `load_lectures_cache(year, semester)`의 `_cache.source`로 4단계 상태 확인
-4. 위 결과 중 "진입/스킵 결정 규칙표"의 진행 조건에 처음 걸리는 단계부터 이어서 진행
+4. `load_timetable_candidates(year, semester)`로 5단계 상태 확인 — 후보가 있으면 그대로 5단계로 (builder가 mismatch를 판정하지 않고 composer에 위임)
+5. 위 결과 중 "진입/스킵 결정 규칙표"의 진행 조건에 처음 걸리는 단계부터 이어서 진행
 
 ## 비고
 
 - 이 스킬은 라우팅/오케스트레이션만 담당한다. 인터뷰 질문 내용, 강의 조회 세부 로직은 각각 `soongpt-interview`, `soongpt-available-lectures` 스킬 문서를 따른다.
-- 시간표 후보 생성 로직 자체는 이 스킬의 스코프 밖이며 별도 이슈로 분리되어 있다.
+- 시간표 후보 생성 로직 자체는 이 스킬의 스코프 밖이며 `soongpt-timetable-composer` 스킬이 담당한다.

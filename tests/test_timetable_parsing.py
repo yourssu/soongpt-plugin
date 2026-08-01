@@ -287,6 +287,34 @@ def test_pass_through_llm_inputs() -> None:
     assert p.slots[0].professor == "김자헌"
 
 
+def test_pass_through_category_sub_category() -> None:
+    """category/sub_category가 원본에서 누락 없이 전달 (이수구분 판단용, 치명①)."""
+    parsed = parse_lectures(
+        [
+            _lecture(
+                code="2150164203",
+                name="알고리즘",
+                category="전필-컴퓨터학부",
+                sub_category="[4차]",
+                schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)",
+            ),
+            # category가 원본에 없으면 기본 None (명시적으로 None 전달)
+            _lecture(
+                code="3161011001",
+                name="머신러닝",
+                category=None,
+                sub_category=None,
+                schedule_room="화 13:30-15:00 (베어드홀 01201-박은영)",
+            ),
+        ]
+    )
+    by_code = {p.code: p for p in parsed}
+    assert by_code["2150164203"].category == "전필-컴퓨터학부"
+    assert by_code["2150164203"].sub_category == "[4차]"
+    assert by_code["3161011001"].category is None
+    assert by_code["3161011001"].sub_category is None
+
+
 def test_pass_through_missing_fields_default_none() -> None:
     """pass-through 필드가 원본에 없으면 None (기본값)."""
     parsed = parse_lectures(
@@ -297,6 +325,8 @@ def test_pass_through_missing_fields_default_none() -> None:
     assert parsed[0].professor is None
     assert parsed[0].division is None
     assert parsed[0].department is None
+    assert parsed[0].category is None
+    assert parsed[0].sub_category is None
 
 
 # ── build_subject_groups ───────────────────────────────────────────────

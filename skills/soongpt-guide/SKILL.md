@@ -1,6 +1,6 @@
 ---
 name: soongpt-guide
-description: soongpt-mcp 플러그인 사용법 안내 스킬 — 14개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
+description: soongpt-mcp 플러그인 사용법 안내 스킬 — 19개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
 ---
 
 # SoongPT Guide
@@ -20,7 +20,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 ## 플러그인 한눈에 보기
 
-숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **14개 도구 + 3개 워크플로우 스킬**로 구성.
+숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **19개 도구 + 4개 워크플로우 스킬**로 구성.
 
 | 그룹 | 도구 | 하는 일 | 보통 호출되는 방식 |
 |---|---|---|---|
@@ -30,16 +30,19 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
 | 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` / `save_lectures_cache` | 통합 조회한 강의 목록 캐시 로드/저장 (7일 TTL) | `soongpt-available-lectures` 내부에서 사용 |
+| 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사 | `soongpt-timetable-composer` 내부에서 사용 |
+| 시간표 후보 | `load_timetable_candidates` / `save_timetable_candidate` / `clear_timetable_candidates` | 조합한 후보 로드/저장(같은 name replace, code 검증)/삭제 | `soongpt-timetable-composer` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
 | 프로필 | `set_user_profile` | 단일 필드 수정 (학번/이름/단과대/학과/학년/트랙 등) | 사용자가 명시적 수정 요청 시 |
 | 프로필 | `refresh_user_profile` | USAINT 학적정보로 학과/학년/입학연도 등 8개 필드 재동기화 | 복학·전과 후 (프로필만 갱신) |
 | 인터뷰 | `get_interview` / `set_interview` / `list_interviews` | 이번 학기 선호(3섹션) 조회/저장, 전체 학기 목록 | `soongpt-interview` 내부에서 사용 |
 
-**스킬 3개** (모두 리포 `skills/` 하위):
+**스킬 4개** (모두 리포 `skills/` 하위):
 - `soongpt-interview` — 이번 학기 전략/선호 3섹션 인터뷰
 - `soongpt-available-lectures` — 이번 학기 들을 수 있는 과목 통합 조회
-- `soongpt-timetable-builder` — 위 둘을 포함한 시간표 완성 전체 흐름 오케스트레이터
+- `soongpt-timetable-builder` — 위를 포함한 시간표 완성 전체 흐름 오케스트레이터
+- `soongpt-timetable-composer` — 인터뷰 선호 + 강의 캐시로 시간표 후보 A/B/C 조합·저장·재개
 
 ## 일반 워크플로우
 
@@ -52,8 +55,8 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 ### 2. 시간표 완성 흐름
 
-- "시간표 짜줘" / "시간표 완성해줘" / "이번 학기 시간표 만들어줘"라고 하면 `soongpt-timetable-builder`로 넘어간다. 이 스킬이 프로필 확인 → 졸업사정표 확인 → 인터뷰(`soongpt-interview`에 위임) → 들을 수 있는 과목 통합 조회(`soongpt-available-lectures`에 위임) 순서로 알아서 진행하며, 이미 끝난 단계는 건너뛴다.
-- 특정 단계만 다시 하고 싶으면("인터뷰만 다시 할래", "강의만 새로 가져와") 그 문구로 말하면 된다. 오케스트레이터가 선행 단계를 다시 확인하지 않고 바로 해당 하위 스킬로 위임한다.
+- "시간표 짜줘" / "시간표 완성해줘" / "이번 학기 시간표 만들어줘"라고 하면 `soongpt-timetable-builder`로 넘어간다. 이 스킬이 프로필 확인 → 졸업사정표 확인 → 인터뷰(`soongpt-interview`에 위임) → 들을 수 있는 과목 통합 조회(`soongpt-available-lectures`에 위임) → 시간표 후보 생성(`soongpt-timetable-composer`에 위임) 순서로 알아서 진행하며, 이미 끝난 단계는 건너뛴다.
+- 특정 단계만 다시 하고 싶으면("인터뷰만 다시 할래", "강의만 새로 가져와", "후보 이어서") 그 문구로 말하면 된다. 오케스트레이터가 선행 단계를 다시 확인하지 않고 바로 해당 하위 스킬로 위임한다.
 
 ### 3. 졸업요건 확인
 
@@ -75,6 +78,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | "이번 학기 들을 수 있는 과목 다 가져와" / "수업 후보 가져와" | 위임: `soongpt-available-lectures` |
 | "시간표 인터뷰 하자" / "이번 학기 계획 세울래" / "내 선호 물어봐" | 위임: `soongpt-interview` |
 | "시간표 짜줘" / "시간표 완성해줘" | 위임: `soongpt-timetable-builder` (전체 흐름 오케스트레이터) |
+| "후보 이어서" / "다시 짜자" / "후보만 다시" | 위임: `soongpt-timetable-composer` (후보 조합·재개) |
 | "지난 학기 인터뷰 뭐라고 했었지" | `list_interviews()` / `get_interview(year, semester)` |
 
 ## 자동 로그인 흐름
@@ -88,4 +92,4 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 ## 비고
 
 - 도구 목록/설명의 최신 소스는 README.md의 '도구' 표다. 이 문서 내용이 README와 어긋나면 README 기준으로 갱신한다.
-- 각 스킬의 세부 진행 절차(질문 순서, 캐시 판단 기준, 진입 조건 등)는 이 스킬에서 다시 설명하지 않고 해당 스킬 문서(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`)를 따른다.
+- 각 스킬의 세부 진행 절차(질문 순서, 캐시 판단 기준, 진입 조건 등)는 이 스킬에서 다시 설명하지 않고 해당 스킬 문서(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-timetable-composer`)를 따른다.

@@ -68,8 +68,10 @@ class ParsedLecture(BaseModel):
     - parse_status: "ok"(정상 파싱) | "uncertain"(파싱 실패 줄 존재, 충돌 검사 제외)
       | "empty"(빈 schedule_room, 충돌 검사 패스)
     - subject_key = code[:-2] (분반 그룹키)
-    - target/field/professor/division/department: 원본 Lecture에서 그대로 전달 —
-      수강 가능 판단(target 자연어 해석, field 학번 매칭 등)은 LLM 몫.
+    - target/field/professor/division/department/category/sub_category: 원본
+      Lecture에서 그대로 전달 — 수강 가능 판단(target 자연어 해석, field 학번
+      매칭)과 이수구분 판단(category: "교필"/"전기-<학부명>"/"전필-<학부명>"/
+      "전선-<학부명>"/"교선"/"교직")은 LLM 몫.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -88,6 +90,8 @@ class ParsedLecture(BaseModel):
     professor: str | None = None
     division: str | None = None
     department: str | None = None
+    category: str | None = None
+    sub_category: str | None = None
 
 
 class Conflict(BaseModel):
@@ -220,6 +224,8 @@ def parse_lectures(lectures: list[dict[str, Any]]) -> list[ParsedLecture]:
             professor=raw.get("professor"),
             division=raw.get("division"),
             department=raw.get("department"),
+            category=raw.get("category"),
+            sub_category=raw.get("sub_category"),
         )
     return list(seen.values())
 
