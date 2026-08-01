@@ -77,15 +77,12 @@ async def test_find_required_electives_returns_names(
     fake_app.required_electives.assert_awaited_once_with(
         2026, rusaint.SemesterType.TWO
     )
-    assert result == {
-        "lecture_names": [
-            "[SW와AI]AI개발과실전",
-            "[인간과성서]인류문명과기독교",
-            "한반도평화와통일",
-        ],
-        "count": 3,
-        "fetchTime": result["fetchTime"],  # 시간 문자열은 형태만 확인
-    }
+    assert result["lecture_names"] == [
+        "[SW와AI]AI개발과실전",
+        "[인간과성서]인류문명과기독교",
+        "한반도평화와통일",
+    ]
+    assert result["count"] == 3
     assert isinstance(result["fetchTime"], str)
     assert result["fetchTime"].endswith("s")
 
