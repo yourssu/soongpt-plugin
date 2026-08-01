@@ -33,7 +33,7 @@ def _clean_optional_text(value: Any) -> str | None:
 
 
 def _clean_optional_major(value: Any) -> str | None:
-    """복수/연계/융합 전공 문자열 정규화 — None 또는 공백이면 None."""
+    """복수/연계·융합/부전공/교직 전공 문자열 정규화 — None 또는 공백이면 None."""
     return _clean_optional_text(value)
 
 
