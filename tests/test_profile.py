@@ -1,35 +1,13 @@
-"""UserProfile 스키마 + 로드/저장/매핑 테스트."""
+"""UserProfile 스키마 + 매핑 테스트 (파일 I/O는 test_snapshot_cache.py 참고)."""
 from __future__ import annotations
-
-import json
-from datetime import datetime
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
-from soongpt_mcp import profile as profile_mod
 from soongpt_mcp.profile import (
     SUBMISSION_FIELDS,
     UserProfile,
-    load_profile,
-    save_profile,
 )
-
-
-@pytest.fixture
-def isolated_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """resolve_profile_path가 tmp_path/profile.json을 가리키도록 격리."""
-    target = tmp_path / "profile.json"
-    monkeypatch.setattr("soongpt_mcp.profile.resolve_profile_path", lambda: target)
-    return target
-
-
-@pytest.fixture
-def isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """CLAUDE_PLUGIN_DATA 대신 tmp_path를 루트로 사용. 학기별 파일명 그대로 검증."""
-    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
-    return tmp_path
 
 
 def test_grade_within_1_to_6() -> None:
@@ -63,7 +41,7 @@ def test_empty_string_becomes_none() -> None:
     assert p.department == "IT"
 
 
-def test_default_updated_at(isolated_path: Path) -> None:
+def test_default_updated_at() -> None:
     p = UserProfile()
     assert p.updated_at is not None
 
@@ -266,125 +244,3 @@ def test_submission_fields_complete() -> None:
             "teaching_major",
         }
     )
-
-
-def test_load_profile_missing_file_returns_none(isolated_path: Path) -> None:
-    assert load_profile() is None
-
-
-def test_save_then_load_roundtrip(isolated_path: Path) -> None:
-    p = UserProfile(
-        student_id="20240001",
-        name="홍길동",
-        college="IT대학",
-        department="컴퓨터학부",
-        grade=3,
-        entered_year=2024,
-    )
-    save_profile(p)
-    assert isolated_path.exists()
-
-    loaded = load_profile()
-    assert loaded is not None
-    assert loaded.student_id == "20240001"
-    assert loaded.name == "홍길동"
-    assert loaded.department == "컴퓨터학부"
-    assert loaded.grade == 3
-    assert loaded.entered_year == 2024
-
-
-def test_save_creates_parent_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    nested = tmp_path / "nested" / "deep" / "profile.json"
-    monkeypatch.setattr("soongpt_mcp.profile.resolve_profile_path", lambda: nested)
-    save_profile(UserProfile(name="x"))
-    assert nested.exists()
-
-
-def test_load_profile_handles_corrupted_file(isolated_path: Path) -> None:
-    isolated_path.write_text("not json {{{", encoding="utf-8")
-    assert load_profile() is None
-
-
-def test_load_profile_handles_schema_violation(isolated_path: Path) -> None:
-    isolated_path.write_text(
-        json.dumps({"grade": 99, "name": "x"}), encoding="utf-8"
-    )
-    assert load_profile() is None
-
-
-def test_load_profile_explicit_path(tmp_path: Path) -> None:
-    target = tmp_path / "custom.json"
-    save_profile(UserProfile(name="x"), path=target)
-    loaded = load_profile(path=target)
-    assert loaded is not None
-    assert loaded.name == "x"
-
-
-def test_resolve_profile_path_uses_current_semester_by_default(
-    isolated_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """현재 학기(2026-07 → 2026_1) 경로를 기본으로 반환."""
-    monkeypatch.setattr(
-        "soongpt_mcp.profile.current_academic_period",
-        lambda: (2026, "1"),
-    )
-    path = profile_mod.resolve_profile_path()
-    assert path == isolated_root / "profile_2026_1.json"
-
-
-def test_resolve_profile_path_accepts_explicit_year_semester(
-    isolated_root: Path,
-) -> None:
-    path = profile_mod.resolve_profile_path(year=2025, semester="2")
-    assert path == isolated_root / "profile_2025_2.json"
-
-
-def test_save_load_roundtrip_per_semester(isolated_root: Path) -> None:
-    p = UserProfile(student_id="20240001", name="길동", grade=2)
-    target = save_profile(p, path=profile_mod.resolve_profile_path(2026, "1"))
-    assert target.name == "profile_2026_1.json"
-
-    loaded = load_profile(profile_mod.resolve_profile_path(2026, "1"))
-    assert loaded is not None
-    assert loaded.student_id == "20240001"
-
-
-def test_load_falls_back_to_legacy_profile_json(isolated_root: Path) -> None:
-    """레거시 profile.json만 있을 때 load 시 자동 마이그레이션 읽기."""
-    legacy = isolated_root / "profile.json"
-    legacy.write_text(
-        json.dumps({"student_id": "20240001", "name": "레거시"}),
-        encoding="utf-8",
-    )
-    # 현재 학기 파일은 없음
-    assert not profile_mod.resolve_profile_path(2026, "1").exists()
-
-    loaded = load_profile(profile_mod.resolve_profile_path(2026, "1"))
-    assert loaded is not None
-    assert loaded.student_id == "20240001"
-    assert loaded.name == "레거시"
-
-
-def test_save_to_new_path_removes_legacy(
-    isolated_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """기본 경로로 save하면 레거시 profile.json이 제거됨 (마이그레이션 완료)."""
-    monkeypatch.setattr(
-        "soongpt_mcp.profile.current_academic_period",
-        lambda: (2026, "1"),
-    )
-    legacy = isolated_root / "profile.json"
-    legacy.write_text(json.dumps({"name": "레거시"}), encoding="utf-8")
-    save_profile(UserProfile(name="새이름"))
-    assert not legacy.exists()
-    assert profile_mod.resolve_profile_path(2026, "1").exists()
-
-
-def test_save_with_explicit_path_keeps_legacy(tmp_path: Path) -> None:
-    """path 인자로 명시 저장 시 레거시 제거 로직 건너뜀 (best-effort)."""
-    legacy = tmp_path / "profile.json"
-    legacy.write_text(json.dumps({"name": "레거시"}), encoding="utf-8")
-    custom = tmp_path / "custom.json"
-    save_profile(UserProfile(name="x"), path=custom)
-    # 명시 path 저장은 레거시 정리 안 함
-    assert legacy.exists()

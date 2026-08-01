@@ -18,10 +18,10 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 인터뷰 시작 전 두 가지 로컬 데이터를 확보한다. 어느 하나라도 빠지면 인터뷰를 시작하지 않는다.
 
-### 1. 프로필 확인
+### 1. 프로필/수강이력 확인
 - `get_user_profile()` 호출
-- 반환 `profile`이 `null`이면 `refresh_user_profile()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈)
-- 프로필이 여전히 비어있으면 사용자에게 안내 후 중단
+- 반환 `profile`이 `null`이거나 핵심 필드가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보)
+- 그래도 프로필이 비어있으면 사용자에게 안내 후 중단
 
 ### 2. 졸업사정표 확인
 - `get_graduation_status()` 호출 — 30일 캐시 우선, 미스/만료 시 자동 fetch
@@ -155,7 +155,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 **3-D. 취향 질문**:
 
-- 시작 전 `get_usaint_snapshot()`을 호출해 `lowGradeSubjectCodes`(C 이하 재수강 후보)와 `subjectNames`(코드→강의명 매핑)를 확인한다. 호출 실패하거나 후보가 없으면 그냥 아래 기본 질문으로 진행.
+- 진입 절차(1단계)에서 `get_usaint_snapshot()`이 확보한 스냅샷 캐시의 `lowGradeSubjectCodes`(C 이하 재수강 후보)와 `subjectNames`(코드→강의명 매핑)를 확인한다. 스냅샷이 아직 없으면 `get_usaint_snapshot()`을 호출해 확보. 호출 실패하거나 후보가 없으면 그냥 아래 기본 질문으로 진행.
 - **재수강 후보가 있을 때**: 구체적으로 짚어 물어봄.
   > "너 C 이하 받은 과목 중에 {subjectNames로 변환한 과목명 목록}이 있던데, 이 중에 재수강 생각 있는 거 있어? 없으면 그냥 넘어가도 돼."
   - `subjectNames`에 이름이 없는 코드는 코드 그대로 표시 (폴백)
@@ -190,6 +190,6 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 ## 비고
 
-- 프로필/졸업사정표는 학기별 스냅샷(`profile_{year}_{semester}.json`), 졸업사정표는 단일 캐시(`graduation.json`)
+- 프로필/수강이력은 학기별 스냅샷(`snapshot_{year}_{semester}.json`), 졸업사정표는 단일 캐시(`graduation.json`)
 - 인터뷰 결과는 후속 단계(들을 수 있는 과목 통합 조회, 시간표 후보 생성)의 주요 입력
-- 재수강 후보 확인(`subject_preferences` 3-D)은 `get_usaint_snapshot()`의 `lowGradeSubjectCodes`/`subjectNames`(SPR-40) 사용 — 프로필/졸업사정표처럼 진입 절차에서 필수로 fetch하지 않고, 해당 질문 시점에만 호출
+- 재수강 후보 확인(`subject_preferences` 3-D)은 `get_usaint_snapshot()`이 저장한 스냅샷 캐시의 `lowGradeSubjectCodes`/`subjectNames`(SPR-40, SPR-46) 사용 — 진입 절차에서 확보된 캐시를 재사용하며, 캐시가 없을 때만 `get_usaint_snapshot()` 호출

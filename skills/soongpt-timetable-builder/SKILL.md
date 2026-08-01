@@ -1,6 +1,6 @@
 ---
 name: soongpt-timetable-builder
-description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 프로필 확인 → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(확장 지점, 미구현) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
+description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 인사+로그인+프로필·수강이력 확보(get_usaint_snapshot) → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(확장 지점, 미구현) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
 ---
 
 # SoongPT Timetable Builder
@@ -16,7 +16,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 ## 전체 흐름 개요
 
-1. 프로필 확인
+1. 인사 + 로그인 + 프로필·수강이력 확보
 2. 졸업사정표 확인
 3. 인터뷰 진행 — 위임: `soongpt-interview`
 4. 들을 수 있는 과목 통합 조회 — 위임: `soongpt-available-lectures`
@@ -30,7 +30,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 | 단계 | 확인 도구 | 스킵 조건 | 진행 조건 | 비고 |
 |---|---|---|---|---|
-| 1. 프로필 | `get_user_profile()` | `profile`이 존재하고 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | `profile == null` 또는 핵심 필드 누락 | null이면 `refresh_user_profile()` 먼저 시도 (USAINT 세션 필요) |
+| 1. 프로필·수강이력 | `get_usaint_snapshot()` + `get_user_profile()` | 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | 하나라도 누락 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `college`는 USAINT 미제공 필드라 비면 사용자에게 물어 `set_user_profile`로 입력 |
 | 2. 졸업사정표 | `get_graduation_status()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 새로 가져옴) — 그대로 사용, 별도 조치 불필요 | `force_refresh=True`는 사용자가 "새로고침"을 명시했을 때만 |
 | 3. 인터뷰 | `get_interview(year, semester)` | `completion`의 3개 섹션(`semester_strategy`, `time_preferences`, `subject_preferences`) 모두 `true` | 하나라도 `false`/없음 | 위임 대상: `soongpt-interview`. 이어서/처음부터 여부는 하위 스킬이 판단 |
 | 4. 강의 캐시 | `load_lectures_cache(year, semester)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures` |
@@ -40,11 +40,19 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 ## 진행 절차
 
-### 1. 프로필 확인
+### 1. 인사 + 로그인 + 프로필·수강이력 확보
 
-- `get_user_profile()` 호출
-- 스킵 조건 만족 시 2단계로
-- 아니면 `refresh_user_profile()` 호출 → 그래도 핵심 필드가 비어있으면 사용자에게 직접 물어 `set_user_profile(field, value)`로 보충 후 재확인
+- "시간표 짜자"로 진입하면 먼저 사용자에게 짧은 인삿말을 보낸다:
+  > "시간표 짜는 거 도와줄게. 시작 전에 학교 정보(학적/수강이력)를 확인할게."
+- 이어서 `get_usaint_snapshot()` 호출 — 세션이 없으면 **브라우저 로그인 폼이 자동으로 열린다**. 응답의 `_cache.source`:
+  - `"cache"`: 30일 이내 스냅샷 재사용 — 프로필+수강이력이 이미 로컬에 있음 (즉시)
+  - `"fresh"`: 방금 USAINT에서 가져와 프로필·수강이력을 저장함 (~9초)
+- `get_user_profile()`로 핵심 필드(`department`, `grade`, `entered_year`, `college`)가 모두 채워졌는지 확인:
+  - `department`/`grade`/`entered_year`은 스냅샷이 채워준다.
+  - `college`(단과대)는 **USAINT가 제공하지 않는 필드**라 비어 있을 수 있다. 비어 있으면 사용자에게 물어 `set_user_profile("college", ...)`로 입력받는다.
+- 프로필·수강이력(`takenCourses`/`lowGradeSubjectCodes`/`subjectNames`)은 스냅샷 호출 하나로 준비되므로, 그 외 `set_user_profile()` 보충 절차는 필요 없다.
+- 프로필 수정은 **사용자가 명시적으로 요청할 때만** `set_user_profile(field, value)` 사용.
+- 수강이력을 "새로고침"해야 한다면 `get_usaint_snapshot(force_refresh=True)` 호출 (사용자가 명시했을 때만).
 
 ### 2. 졸업사정표 확인
 
@@ -83,7 +91,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 전체 흐름 도중 세션이 끊겼다가 "이어서 하자" / "시간표 마저 짜자"로 돌아오면, 처음부터 순서대로 재조회해서 어디까지 끝났는지 판단한다:
 
-1. `get_user_profile()` / `get_graduation_status()`로 1~2단계 상태 재확인 (캐시 기반이라 비용 적음)
+1. `get_usaint_snapshot()` / `get_graduation_status()`로 1~2단계 상태 재확인 (캐시 기반이라 비용 적음)
 2. `get_interview(year, semester)`의 `completion`으로 3단계 상태 확인
 3. `load_lectures_cache(year, semester)`의 `_cache.source`로 4단계 상태 확인
 4. 위 결과 중 "진입/스킵 결정 규칙표"의 진행 조건에 처음 걸리는 단계부터 이어서 진행

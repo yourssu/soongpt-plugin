@@ -24,15 +24,15 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 | 그룹 | 도구 | 하는 일 | 보통 호출되는 방식 |
 |---|---|---|---|
-| 학적/졸업 | `get_usaint_snapshot` | 학적정보, 학기별 수강과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 | 직접 — "내 수강정보 가져와", "재수강 후보 뭐 있어" |
+| 학적/졸업 | `get_usaint_snapshot` | 학적정보, 학기별 수강과목(코드+강의명 매핑), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시 + 프로필 자동 저장) | 직접 — "내 수강정보 가져와", "재수강 후보 뭐 있어" |
 | 학적/졸업 | `get_graduation_status` | 졸업요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시) | 직접 — "졸업요건 확인해줘", "몇 학점 남았어" |
 | 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색 | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` / `save_lectures_cache` | 통합 조회한 강의 목록 캐시 로드/저장 (7일 TTL) | `soongpt-available-lectures` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
-| 프로필 | `set_user_profile` | 단일 필드 수정 (학번/이름/단과대/학과/학년/트랙 등) | 직접 또는 온보딩 중 |
-| 프로필 | `refresh_user_profile` | USAINT 학적정보로 학과/학년/입학연도 등 8개 필드 재동기화 | 온보딩, 복학·전과 후 |
+| 프로필 | `set_user_profile` | 단일 필드 수정 (학번/이름/단과대/학과/학년/트랙 등) | 사용자가 명시적 수정 요청 시 |
+| 프로필 | `refresh_user_profile` | USAINT 학적정보로 학과/학년/입학연도 등 8개 필드 재동기화 | 복학·전과 후 (프로필만 갱신) |
 | 인터뷰 | `get_interview` / `set_interview` / `list_interviews` | 이번 학기 선호(3섹션) 조회/저장, 전체 학기 목록 | `soongpt-interview` 내부에서 사용 |
 
 **스킬 3개** (모두 리포 `skills/` 하위):
@@ -44,9 +44,10 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 
 ### 1. 온보딩 (최초 1회)
 
-- "내 프로필 설정해줘"라고 하면 `refresh_user_profile()`로 USAINT에서 학과/학년/입학연도/복수전공/부전공/교직이수 등 8개 필드를 채우고, 학번·이름·단과대·트랙처럼 USAINT가 못 채우는 4개 필드는 `set_user_profile(field, value)`로 직접 입력받는다.
+- "시간표 짜자" 같은 전체 흐름 진입 시 `soongpt-timetable-builder`가 `get_usaint_snapshot()`을 호출해 **프로필과 수강이력을 한 번에 확보**한다. USAINT가 못 채우는 학번/이름/단과대/트랙은 필요할 때 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다.
 - 이때 USAINT 세션이 없으면 자동 로그인 흐름이 뜬다 (아래 [자동 로그인 흐름](#자동-로그인-흐름) 참고).
 - 휴학/복학/전과 후에는 "프로필 업데이트해줘"라고 하면 `refresh_user_profile(preserve_user_overrides=True)`로 USAINT 쪽 필드만 새로고침하고, 사용자가 직접 입력한 값은 보존한다.
+- `set_user_profile`은 **사용자가 명시적으로 프로필 수정을 요청했을 때만** 사용한다.
 
 ### 2. 시간표 완성 흐름
 
@@ -63,7 +64,7 @@ soongpt-mcp 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤
 | 사용자가 이렇게 물으면 | 대응 |
 |---|---|
 | "내 프로필 뭐로 되어있어?" | `get_user_profile()` |
-| "내 프로필 설정해줘" / "처음이라 설정부터 할래" | 온보딩: `refresh_user_profile()` + `set_user_profile()` |
+| "내 프로필 설정해줘" / "처음이라 설정부터 할래" | 온보딩: `get_usaint_snapshot()`으로 프로필·수강이력 확보 → 필요 시 `set_user_profile()` |
 | "복학했는데 프로필 업데이트해줘" | `refresh_user_profile(preserve_user_overrides=True)` |
 | "내 졸업요건 확인해줘" / "졸업까지 몇 학점 남았어" | `get_graduation_status()` |
 | "재수강하면 좋은 과목 추천해줘" | `get_usaint_snapshot()`의 저성적 과목 기반 추천 |
