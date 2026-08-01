@@ -14,7 +14,7 @@ Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아
 
 ### Claude Code로 설치
 
-Claude Code 대화창에서 아래 명령으로 MCP 서버 + 5개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-timetable-composer`, `soongpt-guide`)을 한 번에 설치합니다:
+Claude Code 대화창에서 아래 명령으로 MCP 서버 + 6개 스킬(`soongpt-interview`, `soongpt-available-lectures`, `soongpt-timetable-builder`, `soongpt-timetable-composer`, `soongpt-timetable-visualize`, `soongpt-guide`)을 한 번에 설치합니다:
 
 ```
 /plugin marketplace add yourssu/soongpt-plugin
@@ -28,7 +28,7 @@ Claude Code 대화창에서 아래 명령으로 MCP 서버 + 5개 스킬(`soongp
 
 ### Codex로 설치
 
-이 저장소는 [Codex](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 5개 스킬을 Codex에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
+이 저장소는 [Codex](https://github.com/openai/codex) 플러그인 매니페스트(`.codex-plugin/plugin.json`)도 포함하고 있어서, MCP 서버와 6개 스킬을 Codex에서도 그대로 쓸 수 있습니다. (Codex용 MCP 등록 파일은 관례적인 `.mcp.json`이 아니라 `codex-mcp.json`으로 이름 붙였습니다 — `.mcp.json`은 Claude Code가 project-scope MCP 서버 파일로 예약해둔 이름이라, 이 저장소를 Claude Code에서 열면 플러그인이 제공하는 서버보다 우선순위가 높은 별도 서버로 잘못 인식됩니다.)
 
 ```
 codex plugin marketplace add yourssu/soongpt-plugin
