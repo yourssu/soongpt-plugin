@@ -149,9 +149,16 @@ def add_candidate(
 
 
 def clear_timetable_cache(year: int, semester: str, path: Path | None = None) -> bool:
-    """후보 캐시 파일 삭제. 파일이 없으면 False, 삭제했으면 True."""
+    """후보 캐시 파일 삭제. 파일이 없으면 False, 삭제했으면 True.
+
+    atomic write 잔재(.json.tmp)가 남아 있으면 함께 정리한다.
+    """
     target = path or resolve_timetable_path(year, semester)
-    if not target.exists():
-        return False
-    target.unlink()
-    return True
+    removed = False
+    if target.exists():
+        target.unlink()
+        removed = True
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    if tmp.exists():
+        tmp.unlink()
+    return removed

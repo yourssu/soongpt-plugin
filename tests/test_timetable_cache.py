@@ -267,6 +267,18 @@ def test_clear_missing_file_returns_false(isolated_root: Path) -> None:
     assert clear_timetable_cache(2026, "1") is False
 
 
+def test_clear_removes_tmp_leftover(isolated_root: Path) -> None:
+    """atomic write 잔재(.json.tmp)도 함께 정리."""
+    save_timetable_cache(_sample_cache())
+    target = isolated_root / "timetable_2026_1.json"
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text("junk", encoding="utf-8")
+    assert tmp.exists()
+    assert clear_timetable_cache(2026, "1") is True
+    assert not target.exists()
+    assert not tmp.exists()
+
+
 # ── server 도구: save→load roundtrip / clear→miss / code 검증 ───────────
 
 

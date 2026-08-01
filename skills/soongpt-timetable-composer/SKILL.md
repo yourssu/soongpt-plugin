@@ -35,7 +35,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 ### 3. 데이터 원본 확보 (재개 mismatch 판정용 스냅샷)
 
 - `get_usaint_snapshot()` 호출 — `takenCourses`(수강이력), `lowGradeSubjectCodes`(재수강 후보), `subjectNames`(코드→강의명) 확보. (builder 경유라면 이미 있음 — 캐시 기반 즉시)
-- `get_graduation_status()` 호출 — **부족 학점(카테고리별 difference)만** 참고 (아래 [미이수 필수](#-미이수-필수-절차-명문화) 절차 참고)
+- `get_graduation_status()` 호출 — **부족 학점(카테고리별 difference)만** 참고 (아래 [미이수 필수](#미이수-필수-절차-명문화) 절차 참고)
 - 이 스킬이 나중에 저장할 `generation_params`에 쓸 기준값 두 개를 기억한다:
   - `interview_updated_at` = `get_interview()` 응답의 `interview.updated_at`
   - `lectures_cached_at` = `load_lectures_cache()` 응답의 `_cache.cached_at`
@@ -52,6 +52,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 - `code` / `name` / `subject_key`(code[:-2] 분반 그룹키) / `credits` / `slots`
 - `parse_status`: `"ok"` | `"uncertain"` | `"empty"` — **충돌 검사는 `ok`만** 대상
 - `category`: **이수구분** — `"전기-<학부명>"`(전공기초), `"전필-<학부명>"`(전공필수), `"전선-<학부명>"`(전공선택), `"교필"`(교양필수), `"교선"`(교양선택), `"교직"`. `division`(null/"공통-재수강"/"팀티칭" 라벨)은 못 쓰니 **반드시 category 기준**
+- `sub_category`: rusaint 원본 Lecture의 **실존 필드**(`subject_category` 아님 — 필드명 검증 완료). 값이 없으면 `None` — LLM 판단에 못 쓸 땐 `category`만 사용한다
 - `target` (수강대상 자연어), `field` (학번 태그), `department`, `professor`
 
 ## 안내 순서 3단계 (기본값 — 사용자 순서 변경 허용)
@@ -132,6 +133,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
     }
     ```
 - 같은 `name`으로 다시 저장하면 기존 후보가 **교체(replace)**된다 — 수정 반복 시 폐기 후보가 쌓이지 않는다. 반환의 `replaced`로 확인할 수 있다.
+- **후보 이름은 수정 시에도 동일하게 유지하세요** — 같은 `name`으로 저장해야 기존 후보가 교체됩니다. 이름을 바꾸면 별도 후보로 쌓여 폐기 후보가 축적됩니다.
 - `lecture_codes` 중 강의 캐시에 없는 code가 있으면 도구가 ValueError를 반환한다 — 그때는 `parse_lectures_cache`의 code를 다시 확인한다 (코드 전사 오류 가능성).
 
 ## 재개 (mismatch 분기)
@@ -150,6 +152,8 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
    - **새로 짜기**: `clear_timetable_candidates(year, semester)` 후 [파싱](#파싱-1회만)부터 다시.
    - **이어서 보기**: 기존 후보 표시 + mismatch 영향 안내 후 재개.
 5. match면: 기존 후보(`candidates`)를 표시하고 이어서 진행 (수정/확정/다시 조합).
+
+> **재저장 시 스냅샷 갱신 필수**: 후보를 수정·재저장할 때는 `generation_params`에 현재 인터뷰/강의 캐시 스냅샷을 **항상 다시 포함**하세요. 없이 저장하면 이전 스냅샷이 유지되어 다음 재개에서 계속 mismatch로 판정됩니다.
 
 ## 비고
 
