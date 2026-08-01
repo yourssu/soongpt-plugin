@@ -83,7 +83,8 @@ class SnapshotCache(BaseModel):
         None, description="USAINT 학적 기본 정보 (수강이력 fetch 시 채워짐)"
     )
     takenCourses: list[TakenCourse] = Field(
-        default_factory=list, description="학기별 수강 과목 코드 목록"
+        default_factory=list,
+        description="학기별 수강 과목(코드+강의명 subjects) 목록",
     )
     lowGradeSubjectCodes: list[str] = Field(
         default_factory=list, description="C 이하 성적 과목 코드 리스트"
