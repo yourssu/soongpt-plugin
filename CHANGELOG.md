@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-01
+
+### Added
+
+- soongpt-timetable-composer 채플(chapel) 처리 추가 (#29)
+
 ### Fixed
 
 - Codex/Claude Code 플러그인 업데이트 안내 명령어 오류 수정 — 마켓플레이스 갱신 시 `org/repo` 형태가 아니라 등록된 마켓플레이스 이름(`yourssu`)을 써야 함
