@@ -12,7 +12,8 @@
     "./skills/soongpt-guide/",
     "./skills/soongpt-interview/",
     "./skills/soongpt-timetable-builder/",
-    "./skills/soongpt-timetable-composer/"
+    "./skills/soongpt-timetable-composer/",
+    "./skills/soongpt-timetable-visualize/"
   ],
   "mcpServers": "./mcp.json"
 }
