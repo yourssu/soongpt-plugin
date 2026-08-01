@@ -42,7 +42,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 스킬이 직접 `find_lectures`와 `list_optional_elective_categories`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행.
 
-#### 3-A. 전공 계열 (2~4회 병렬)
+#### 3-A. 전공 계열 (2~6회 병렬)
 
 - **주전공** (필수 1회):
   ```
@@ -67,21 +67,30 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
                 major=None)
   ```
   → `groups["major_double"]`에 저장
-  - **주의**: `profile.double_major`의 단과대를 모르면 사용자에게 물어봄. 프로필에 별도 필드가 없으므로 런타임에만 알면 됨
-  - 이 필드는 SPR-35 해결 후 추가됨. 그 전까지는 이 블록을 건너뛰고 주전공만
+  - **단과대 획득**: `profile`에 복수/부전공 단과대 필드가 없으므로 `load_department_map(year)` 매핑 `{학과명: 단과대}`에서 역조회. `mapping[profile.double_major]`로 단과대 획득
+  - 매핑에 키가 없으면 사용자에게 "복수전공 학과 {X}의 단과대가 어디야?" 직접 질문
+  - `load_department_map`은 **복수전공 또는 부전공이 있을 때만** 3번 진입 시 **한 번만** 선행 호출하고 두 카테고리가 같은 매핑 결과를 재사용 (둘 다 없으면 호출 불필요)
 
 - **부전공** (`profile.minor` 있을 때만):
-  - 위와 동일 패턴, `department=profile.minor`, `groups["major_minor"]`
-  - SPR-35에서 `minor` 필드 추가 전까지 건너뜀
+  - 복수전공과 동일 패턴: `load_department_map` 역조회로 단과대 확보(실패 시 fallback 질문) →
+    ```
+    find_lectures(year, semester, category_type="major",
+                  collage=<부전공 단과대>, department=profile.minor,
+                  major=None)
+    ```
+  → `groups["major_minor"]`에 저장
 
 - **연계·융합전공** (`profile.connected_major` 있을 때만):
+  - rusaint 0.16.3은 **연계전공(`connected_major`)과 융합전공(`united_major`)을 별도 분류**로 제공. USAINT는 프로필 `connected_major`에 연계/융합을 통합 추출하므로 런타임에 어느 쪽인지 알 수 없음 → **양쪽 모두 시도**
   ```
   find_lectures(year, semester, category_type="connected_major",
                 major=profile.connected_major)
+  find_lectures(year, semester, category_type="united_major",
+                major=profile.connected_major)
   ```
-  → `groups["connected_major"]`에 저장
-  - rusaint 0.16.3은 연계/융합을 `connected_major` 하나로 통합 제공하므로 단일 카테고리 호출로 충분
-  - SPR-35에서 `connected_major` 필드 추가 전까지 건너뜀
+  → 각각 `groups["connected_major"]`, `groups["united_major"]`에 저장
+  - **일반적으로 한쪽이 실패**: 사용자 이수가 연계면 보통 `united_major`가, 융합이면 `connected_major`가 USAINT WebDynpro 예외(`Cannot find ... option in ...CONNECT_MAJO/UNMA...`)를 던짐. 빈 배열이 아니라 **예외**이며 3-D의 카테고리별 error 처리로 흡입(정상 무시). 정상 한쪽은 강의 배열을 반환. **두 쪽 모두 성공(예: 과목이 양쪽에 걸쳐 개설)하면 둘 다 저장**
+  - (런타임 검증은 임의 학과명으로 라우팅 건전성만 확인했으므로, 실제 이수자의 응답 패턴은 추후 검증 필요)
 
 #### 3-B. 교양선택 전체 분야 (10~15회 병렬)
 
@@ -117,12 +126,12 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   ```
   → `groups["cyber"]`에 저장
 
-- **교직** (`profile.teaching_certification == True`일 때만, SPR-36 선행):
+- **교직** (`profile.teaching_certification == True`일 때만):
   ```
   find_lectures(year, semester, category_type="education")
   ```
   → `groups["education"]`에 저장
-  - `teaching_certification` 필드가 추가되기 전(SPR-36)까지는 건너뜀
+  - `teaching_certification`이 `False`/`None`이면 이 블록 생략
 
 #### 3-D. 취합 + 저장
 
@@ -142,6 +151,34 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
     "lectures": [...],
     "count": N,
     "error": null
+  },
+  "major_double": {  # double_major 있을 때만
+    "category_type": "major",
+    "params": {"collage": "<복수전공 단과대>", "department": "<double_major>", "major": None},
+    "lectures": [...],
+    "count": N,
+    "error": null
+  },
+  "major_minor": {  # minor 있을 때만
+    "category_type": "major",
+    "params": {"collage": "<부전공 단과대>", "department": "<minor>", "major": None},
+    "lectures": [...],
+    "count": N,
+    "error": null
+  },
+  "connected_major": {  # connected_major 있을 때만
+    "category_type": "connected_major",
+    "params": {"major": "<connected_major>"},
+    "lectures": [...],
+    "count": N,
+    "error": null
+  },
+  "united_major": {  # connected_major 있을 때만 (연계/융합 양쪽 시도)
+    "category_type": "united_major",
+    "params": {"major": "<connected_major>"},
+    "lectures": [],  # 이수가 연계면 이쪽은 예외 → 아래 error로 흡입(정상 무시)
+    "count": 0,
+    "error": "WebDynpro: Cannot find ... option in UNMA (연계 이수 시 융합 쪽은 예외 — 정상 무시)"
   },
   "optional_elective_[‘23이후]과학·기술": {
     "category_type": "optional_elective",
@@ -198,7 +235,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 | `college` 비어있음 | "주전공 학과의 단과대가 어디야? (예: IT대학, 인문대학)" → `set_user_profile("college", ...)` |
 | `department` 비어있음 | `get_usaint_snapshot()` 호출로 USAINT 학적정보에서 재확보 유도 |
 | `entered_year` 비어있음 | "입학연도 알려줘 (교양 분야 필터링에 필요)" → `set_user_profile("entered_year", ...)` |
-| `double_major`/`minor`의 단과대 모름 | "복수전공 학과 {X}의 단과대가 어디야?" |
+| `double_major`/`minor` 있고 단과대 모름 | `load_department_map(year)` → `mapping[학과명]` 역조회. 키 없으면 사용자에게 "복수/부전공 학과 {X}의 단과대가 어디야?" 질문 |
 
 ## 캐시 무효화
 
@@ -208,8 +245,11 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 ## 비고
 
-- **SPR-35 선행**: `double_major`, `minor`, `connected_major` 필드 추가 전까지는 복수/부전공/연계융합 계열 블록 건너뜀. 나머지 카테고리(주전공 + 타전공인정 + 교양 + 채플 + 사이버 + 교직)는 정상 조회
-- **SPR-36 선행**: `teaching_certification` 필드가 추가되어야 교직(`education`) 카테고리 조회. 필드 추가 전에는 해당 블록 건너뜀
+- **카테고리 활성 조건** (프로필 값 기반):
+  - 복수전공: `profile.double_major` 있을 때 (단과대는 `load_department_map` 역조회, 실패 시 사용자 질문)
+  - 부전공: `profile.minor` 있을 때 (동일)
+  - 연계·융합: `profile.connected_major` 있을 때 (`connected_major` + `united_major` 양쪽 시도, 한쪽은 예외로 정상 무시)
+  - 교직: `profile.teaching_certification == True`일 때
 - **채플 lecture_name 기본값**: "채플"로 폭넓게 검색. 사용자가 특정 채플명(비전채플 등)을 지정하면 그 이름으로 조회
 - **인터뷰 결과 소비**: `subject_preferences`에서 필수 과목/관심 분야 추출해 우선 순위 반영 — **이 이슈에서는 보류**, 후속 PR
 - 스킬은 `find_lectures`와 `list_optional_elective_categories` MCP 도구만 소비. 오케스트레이션은 스킬(LLM)이 담당

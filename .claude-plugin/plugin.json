@@ -1,5 +1,6 @@
 {
   "name": "soongpt",
+  "version": "0.1.0",
   "description": "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements",
   "author": { "name": "soongpt-mcp contributors" },
   "repository": "https://github.com/yourssu/soongpt-plugin",
