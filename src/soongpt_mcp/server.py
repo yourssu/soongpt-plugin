@@ -138,9 +138,11 @@ async def get_usaint_snapshot(force_refresh: bool = False) -> dict:
 
     반환: basicInfo, takenCourses, lowGradeSubjectCodes, subjectNames, flags,
     warnings + _cache: {source: "cache"|"fresh", fetched_at, age_days}.
-    subjectNames는 과목 코드 → 강의명 매핑 (실제 수강한 과목만 포함, 재수강
-    대체과목 추천 코드처럼 수강 이력이 없는 코드는 미포함 — 코드를 그대로 사용).
-    졸업사정표는 별도 도구 get_graduation_status를 사용하세요.
+    takenCourses는 학기별 수강 과목을 코드+강의명(subjects) 인라인으로 제공.
+    subjectNames는 이 subjects로부터 자동 파생된 {코드: 강의명} read-only 매핑 —
+    실제 수강한 과목만 포함하며, 재수강 대체과목 추천 코드처럼 수강 이력이 없는
+    코드는 미포함(코드를 그대로 폴백으로 사용). 졸업사정표는 별도 도구
+    get_graduation_status를 사용하세요.
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
@@ -169,7 +171,6 @@ async def get_usaint_snapshot(force_refresh: bool = False) -> dict:
         basicInfo=snapshot.basicInfo,
         takenCourses=snapshot.takenCourses,
         lowGradeSubjectCodes=snapshot.lowGradeSubjectCodes,
-        subjectNames=snapshot.subjectNames,
         flags=snapshot.flags,
         warnings=snapshot.warnings,
         fetched_at=now,
@@ -177,6 +178,22 @@ async def get_usaint_snapshot(force_refresh: bool = False) -> dict:
     target = save_snapshot_cache(cache)
     cleanup_legacy_profiles(year, semester, target)
     return _format_snapshot_response(cache, source="fresh", fetched_at=now, now=now)
+
+
+def _derive_subject_names(cache: SnapshotCache) -> dict[str, str]:
+    """takenCourses.subjects로부터 {코드: 강의명}을 파생하는 응답 read-only 필드.
+
+    쓰기 진실 소스는 subjects 하나 — subjectNames는 매번 subjects에서 재파생되며
+    별도로 저장되지 않는다. name이 None/빈 과목은 제외. lowGrade 대체과목
+    추천 코드 등 실제 수강 이력이 없는 코드는 subjects에 없으므로 여기에도 없음 —
+    소비측(interview 스킬)이 subjectNames.get(code, code)로 코드 자체를 폴백.
+    """
+    names: dict[str, str] = {}
+    for course in cache.takenCourses:
+        for subject in course.subjects:
+            if subject.name:
+                names[subject.code] = subject.name
+    return names
 
 
 def _format_snapshot_response(
@@ -191,7 +208,7 @@ def _format_snapshot_response(
         "basicInfo": _jsonify(cache.basicInfo),
         "takenCourses": _jsonify(cache.takenCourses),
         "lowGradeSubjectCodes": _jsonify(cache.lowGradeSubjectCodes),
-        "subjectNames": _jsonify(cache.subjectNames),
+        "subjectNames": _derive_subject_names(cache),
         "flags": _jsonify(cache.flags),
         "warnings": cache.warnings,
         "_cache": {

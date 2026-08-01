@@ -105,7 +105,7 @@ class RusaintService:
             data_start = time.time()
             (
                 (basic_info, basic_warnings),
-                (taken_courses, low_grade_codes, subject_names, course_warnings),
+                (taken_courses, low_grade_codes, course_warnings),
                 flags,
             ) = await asyncio.gather(
                 fetchers.fetch_basic_info(student_info_app),
@@ -128,7 +128,6 @@ class RusaintService:
             return UsaintSnapshotResponse(
                 takenCourses=taken_courses,
                 lowGradeSubjectCodes=low_grade_codes,
-                subjectNames=subject_names,
                 flags=flags,
                 basicInfo=basic_info,
                 warnings=warnings,

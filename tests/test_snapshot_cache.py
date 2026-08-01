@@ -14,7 +14,7 @@ from pydantic import ValidationError
 
 from soongpt_mcp import snapshot_cache as sc
 from soongpt_mcp.profile import UserProfile
-from soongpt_mcp.schemas.usaint_schemas import BasicInfo, TakenCourse
+from soongpt_mcp.schemas.usaint_schemas import BasicInfo, SubjectItem, TakenCourse
 from soongpt_mcp.snapshot_cache import (
     SnapshotCache,
     is_snapshot_cache_fresh,
@@ -81,9 +81,14 @@ def test_snapshot_cache_roundtrip_full(isolated_root: Path) -> None:
         semester="1",
         profile=UserProfile.from_basic_info(basic),
         basicInfo=basic,
-        takenCourses=[TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])],
+        takenCourses=[
+            TakenCourse(
+                year=2025,
+                semester="1",
+                subjects=[SubjectItem(code="CSE1234", name="자료구조")],
+            )
+        ],
         lowGradeSubjectCodes=["CSE1234"],
-        subjectNames={"CSE1234": "자료구조"},
         fetched_at=datetime.now(timezone.utc),
     )
     save_snapshot_cache(cache)
@@ -91,9 +96,9 @@ def test_snapshot_cache_roundtrip_full(isolated_root: Path) -> None:
     loaded, fetched_at = load_snapshot_cache(2026, "1")
     assert loaded is not None
     assert loaded.profile.department == "컴퓨터학부"
-    assert loaded.takenCourses[0].subjectCodes == ["CSE1234"]
+    assert loaded.takenCourses[0].subjects[0].code == "CSE1234"
+    assert loaded.takenCourses[0].subjects[0].name == "자료구조"
     assert loaded.lowGradeSubjectCodes == ["CSE1234"]
-    assert loaded.subjectNames == {"CSE1234": "자료구조"}
     assert fetched_at is not None
 
 
@@ -125,6 +130,34 @@ def test_load_snapshot_cache_schema_violation(isolated_root: Path) -> None:
         json.dumps({"year": 2026, "semester": "1", "profile": {"grade": 99}}),
         encoding="utf-8",
     )
+    cache, fetched_at = load_snapshot_cache(2026, "1")
+    assert cache is None
+    assert fetched_at is None
+
+
+def test_legacy_subjectnames_cache_rejected(isolated_root: Path) -> None:
+    """SPR-47 회귀: 구 스키마(subjectNames + subjectCodes) 캐시 파일은
+    SnapshotCache extra="forbid" / TakenCourse extra="forbid" 로 검증 실패 →
+    load_snapshot_cache가 (None, None) 반환. silent drop 차단, 자동 refetch 유도."""
+    legacy_payload = {
+        "year": 2026,
+        "semester": "1",
+        "profile": {"department": "컴퓨터학부"},
+        "basicInfo": {
+            "year": 2023,
+            "grade": 3,
+            "semester": 5,
+            "department": "컴퓨터학부",
+        },
+        "takenCourses": [{"year": 2025, "semester": "1", "subjectCodes": ["CSE1234"]}],
+        "lowGradeSubjectCodes": ["CSE1234"],
+        "subjectNames": {"CSE1234": "자료구조"},
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (isolated_root / "snapshot_2026_1.json").write_text(
+        json.dumps(legacy_payload), encoding="utf-8"
+    )
+
     cache, fetched_at = load_snapshot_cache(2026, "1")
     assert cache is None
     assert fetched_at is None
@@ -216,9 +249,14 @@ def test_save_profile_preserves_fetched_at_and_academic_data(
         semester="1",
         profile=UserProfile.from_basic_info(basic),
         basicInfo=basic,
-        takenCourses=[TakenCourse(year=2025, semester="1", subjectCodes=["CSE1234"])],
+        takenCourses=[
+            TakenCourse(
+                year=2025,
+                semester="1",
+                subjects=[SubjectItem(code="CSE1234", name="자료구조")],
+            )
+        ],
         lowGradeSubjectCodes=["CSE1234"],
-        subjectNames={"CSE1234": "자료구조"},
         fetched_at=datetime.now(timezone.utc),
     )
     save_snapshot_cache(cache)
@@ -229,7 +267,7 @@ def test_save_profile_preserves_fetched_at_and_academic_data(
     loaded, fetched_at = load_snapshot_cache(2026, "1")
     assert loaded is not None
     assert loaded.profile.student_id == "20240001"
-    assert loaded.takenCourses[0].subjectCodes == ["CSE1234"]
+    assert loaded.takenCourses[0].subjects[0].code == "CSE1234"
     assert loaded.lowGradeSubjectCodes == ["CSE1234"]
     assert fetched_at is not None  # 수강이력 신선도 유지
 

@@ -50,7 +50,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 - `get_user_profile()`로 핵심 필드(`department`, `grade`, `entered_year`, `college`)가 모두 채워졌는지 확인:
   - `department`/`grade`/`entered_year`은 스냅샷이 채워준다.
   - `college`(단과대)는 **USAINT가 제공하지 않는 필드**라 비어 있을 수 있다. 비어 있으면 사용자에게 물어 `set_user_profile("college", ...)`로 입력받는다.
-- 프로필·수강이력(`takenCourses`/`lowGradeSubjectCodes`/`subjectNames`)은 스냅샷 호출 하나로 준비되므로, 그 외 `set_user_profile()` 보충 절차는 필요 없다.
+- 프로필·수강이력(`takenCourses`(코드+강의명 subjects 인라인)/`lowGradeSubjectCodes`)은 스냅샷 호출 하나로 준비되므로, 그 외 `set_user_profile()` 보충 절차는 필요 없다. `subjectNames`(코드→강의명)는 이 subjects에서 자동 파생되어 응답에만 노출됨.
 - 프로필 수정은 **사용자가 명시적으로 요청할 때만** `set_user_profile(field, value)` 사용.
 - 수강이력을 "새로고침"해야 한다면 `get_usaint_snapshot(force_refresh=True)` 호출 (사용자가 명시했을 때만).
 

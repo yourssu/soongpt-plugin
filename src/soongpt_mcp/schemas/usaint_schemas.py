@@ -4,7 +4,7 @@
 MCP 서버 내부 및 클라이언트 응답에 사용됩니다.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
 
@@ -24,12 +24,30 @@ class UsaintSnapshotRequest(BaseModel):
 # Response Schemas
 # ============================================================
 
+class SubjectItem(BaseModel):
+    """수강 과목 한 개 — 코드 + 강의명 인라인.
+
+    LLM이 takenCourses를 읽을 때 코드→강의명을 별도 사전 join 없이 바로 해석하도록.
+    name은 rusaint classes()의 class_name (없으면 None).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(..., description="과목 코드")
+    name: Optional[str] = Field(None, description="강의명 (rusaint class_name, 없으면 None)")
+
+
 class TakenCourse(BaseModel):
     """학기별 수강 과목 정보"""
 
+    model_config = ConfigDict(extra="forbid")
+
     year: int = Field(..., description="기준 학년도 (예: 2024)")
     semester: str = Field(..., description="학기 ('1': 1학기, '2': 2학기, 'SUMMER': 여름학기, 'WINTER': 겨울학기)")
-    subjectCodes: list[str] = Field(default_factory=list, description="해당 학기 수강 과목 코드 리스트")
+    subjects: list[SubjectItem] = Field(
+        default_factory=list,
+        description="해당 학기 수강 과목 리스트 (코드+강의명 인라인)",
+    )
 
 
 class Flags(BaseModel):
@@ -92,16 +110,11 @@ class GraduationRequirements(BaseModel):
 class UsaintSnapshotResponse(BaseModel):
     """유세인트 데이터 스냅샷 응답"""
 
-    takenCourses: list[TakenCourse] = Field(default_factory=list, description="학기별 수강 과목 코드 목록")
-    lowGradeSubjectCodes: list[str] = Field(default_factory=list, description="C 이하 성적 과목 코드 리스트 (재수강 대상)")
-    subjectNames: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "과목 코드 → 강의명 매핑 (rusaint 성적 조회 결과에서 추출, 실제 수강한 과목만 포함). "
-            "재수강 대체과목 추천 코드처럼 실제 수강 이력이 없는 코드는 매핑에 없음 — "
-            "이 경우 subjectCodes/lowGradeSubjectCodes의 코드를 그대로 폴백으로 사용."
-        ),
+    takenCourses: list[TakenCourse] = Field(
+        default_factory=list,
+        description="학기별 수강 과목(코드+강의명 subjects) 목록",
     )
+    lowGradeSubjectCodes: list[str] = Field(default_factory=list, description="C 이하 성적 과목 코드 리스트 (재수강 대상)")
     flags: Flags = Field(default_factory=Flags, description="복수전공/부전공 및 교직 이수 정보")
     basicInfo: BasicInfo = Field(..., description="기본 학적 정보")
     warnings: list[str] = Field(default_factory=list, description="빈 데이터 경고 코드 (NO_COURSE_HISTORY, NO_SEMESTER_INFO 등)")

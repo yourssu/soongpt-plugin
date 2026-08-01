@@ -88,9 +88,6 @@ class SnapshotCache(BaseModel):
     lowGradeSubjectCodes: list[str] = Field(
         default_factory=list, description="C 이하 성적 과목 코드 리스트"
     )
-    subjectNames: dict[str, str] = Field(
-        default_factory=dict, description="과목 코드 → 강의명 매핑"
-    )
     flags: Flags = Field(default_factory=Flags, description="복수전공/부전공/교직 정보")
     warnings: list[str] = Field(default_factory=list, description="빈 데이터 경고 코드")
     fetched_at: datetime | None = Field(

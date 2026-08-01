@@ -17,6 +17,7 @@ from soongpt_mcp.schemas.usaint_schemas import (
     Flags,
     GraduationRequirementItem,
     GraduationRequirements,
+    SubjectItem,
     TakenCourse,
 )
 
@@ -133,22 +134,25 @@ async def fetch_all_course_data_parallel(
     course_grades_app1,
     course_grades_app2,
     semester_type_map: Dict[Any, str],
-) -> tuple[list[TakenCourse], list[str], dict[str, str], list[str]]:
+) -> tuple[list[TakenCourse], list[str], list[str]]:
     """
     2개의 CourseGradesApplication으로 학기를 나눠서 병렬 조회합니다.
 
-    반환: (taken_courses, low_grade_codes, code_to_name, warnings).
-    code_to_name은 rusaint classes() 응답의 class_name을 그대로 모은 매핑 —
-    실제 수강한 과목만 포함하며, find_lectures/lectures_cache 대조 없이도
-    과목 코드 → 강의명을 바로 얻을 수 있음 (재수강 대체과목 추천 코드처럼
-    실제 수강 이력이 없는 코드는 포함되지 않음).
+    반환: (taken_courses, low_grade_codes, warnings).
+    taken_courses의 각 subjects에는 과목 코드와 강의명(class_name)이 인라인으로
+    들어감 — 응답 소비측이 별도 사전 join 없이 바로 해석. 강의명이 없는 과목은
+    name=None. (과목명 전체 사전은 응답 파생 단 server._format_snapshot_response에서
+    subjects로부터 재구성됨.)
+
+    code_to_name(내부 로컬 변수)은 이 함수에서만 lowGrade 대체과목(교양필수
+    구→신과목) 매핑에 사용되며 반환되지 않음.
     """
     try:
         semesters = await course_grades_app1.semesters(rusaint.CourseType.BACHELOR)
 
         if not semesters:
             logger.warning("수강 이력 없음 (빈 학기 목록) — 새내기 가능성")
-            return [], [], {}, ["NO_COURSE_HISTORY"]
+            return [], [], ["NO_COURSE_HISTORY"]
 
         if len(semesters) <= 1:
             semesters_group1 = semesters
@@ -194,28 +198,26 @@ async def fetch_all_course_data_parallel(
 
         taken_courses = []
         latest_grades: Dict[str, tuple[int, int, str]] = {}
+        # code_to_name은 lowGrade 대체과목(교양필수 구→신과목) 매핑에만 쓰이는
+        # 내부 로컬 변수. 응답에는 노출되지 않으며, 아래 classes() 순회에서
+        # subjects.name과 동일한 정규화로 생성되어 항상 동기화됨(invariant).
         code_to_name: Dict[str, str] = {}
 
         for idx, (semester_grade, classes) in enumerate(zip(semesters, all_semester_classes)):
-            subject_codes = [cls.code for cls in classes if cls.code not in CHAPEL_CODES]
             semester_str = semester_type_map.get(semester_grade.semester, "1")
 
-            taken_courses.append(
-                TakenCourse(
-                    year=semester_grade.year,
-                    semester=semester_str,
-                    subjectCodes=subject_codes,
-                )
-            )
-
+            # invariant: subjects(출력)와 code_to_name(내부)은 이 한 번의 classes()
+            # 순회에서 동일한 정규화(class_name or None)로 생성되어 동기화됨.
+            subjects: list[SubjectItem] = []
             for cls in classes:
                 code = cls.code
                 if code in CHAPEL_CODES:
                     continue
 
-                class_name = getattr(cls, "class_name", None) or ""
-                if class_name:
-                    code_to_name[code] = class_name
+                name = getattr(cls, "class_name", None) or None
+                subjects.append(SubjectItem(code=code, name=name))
+                if name:
+                    code_to_name[code] = name
 
                 rank = getattr(cls, "rank", None)
                 if not rank:
@@ -230,6 +232,14 @@ async def fetch_all_course_data_parallel(
                     if (semester_grade.year, idx) > (prev_year, prev_idx):
                         latest_grades[code] = (semester_grade.year, idx, rank_str)
 
+            taken_courses.append(
+                TakenCourse(
+                    year=semester_grade.year,
+                    semester=semester_str,
+                    subjects=subjects,
+                )
+            )
+
         low_grade_codes = []
         for code, (_, _, rank_str) in latest_grades.items():
             if rank_str == settings.FAIL_GRADE or rank_str in settings.LOW_GRADE_RANKS:
@@ -243,7 +253,7 @@ async def fetch_all_course_data_parallel(
                 low_grade_codes.append(replacement_code)
                 low_grade_code_set.add(replacement_code)
 
-        return taken_courses, low_grade_codes, code_to_name, []
+        return taken_courses, low_grade_codes, []
 
     except Exception as e:
         logger.error(f"성적 관련 데이터 조회 실패 (병렬): {type(e).__name__}")
