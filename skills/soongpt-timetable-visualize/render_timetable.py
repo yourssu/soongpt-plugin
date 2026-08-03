@@ -301,19 +301,32 @@ def _layout_day(blocks: list[Block]) -> list[tuple[int, int]]:
 
 
 def _time_window(blocks: list[Block]) -> tuple[int, int]:
-    """그리드 시간축 [시작, 종료) 분. 시간 단위로 반올림, 기본 09:00-18:00."""
+    """그리드 시간축 [시작, 종료) 분.
+
+    기본 09:00-18:00 범위를 항상 보장하고, 수업이 그 범위를 벗어나면 확장한다
+    (SPR-60). 빈 시간대도 그리드에 나오게 해 수업이 몰린 시간대로만 축소되지
+    않도록 한다.
+    """
+    base_start, base_end = 9 * 60, 18 * 60
     if not blocks:
-        return 9 * 60, 18 * 60
+        return base_start, base_end
     start = min(b.start_min for b in blocks)
     end = max(b.end_min for b in blocks)
-    return (start // 60) * 60, ((end + 59) // 60) * 60
+    start_h = min((start // 60) * 60, base_start)
+    end_h = max(((end + 59) // 60) * 60, base_end)
+    return start_h, end_h
 
 
 def _render_days(blocks: list[Block]) -> list[str]:
-    """렌더할 요일 목록 (요일 순서 유지, 토/일은 있을 때만)."""
+    """렌더할 요일 목록. 월~금은 항상 표시, 토/일은 수업이 있을 때만 (SPR-60).
+
+    수업이 없는 요일도 컬럼이 항상 보이도록 _BASE_DAYS(월~금)를 기본으로 깔고,
+    주말 수업이 있을 때만 토/일을 추가한다.
+    """
     present = {b.day for b in blocks}
-    days = [d for d in _WEEKDAY_ORDER if d in present]
-    return days or list(_BASE_DAYS)
+    days = list(_BASE_DAYS)
+    days += [d for d in _WEEKDAY_ORDER if d not in _BASE_DAYS and d in present]
+    return days
 
 
 def render_html(
