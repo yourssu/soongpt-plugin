@@ -258,6 +258,7 @@ def test_layout_day_three_way_overlap(renderer) -> None:
 
 
 def test_time_window_rounds_to_hour(renderer) -> None:
+    """기본 09:00-18:00 보장 + 수업이 벗어나면 확장 (SPR-60)."""
     blocks, _ = renderer.build_blocks(
         [
             _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
@@ -269,15 +270,36 @@ def test_time_window_rounds_to_hour(renderer) -> None:
         ]
     )
     start, end = renderer._time_window(blocks)
-    assert start == 10 * 60
-    assert end == 23 * 60  # 22:15 → 다음 시간 경계
+    assert start == 9 * 60  # 10:30보다 이른 기본 09:00 보장
+    assert end == 23 * 60  # 22:15 → 다음 시간 경계, 18:00보다 늦어 확장
+
+
+def test_time_window_guarantees_default_range(renderer) -> None:
+    """수업이 기본 범위 안에만 있어도 09:00-18:00 그리드 보장 (SPR-60)."""
+    blocks, _ = renderer.build_blocks(
+        [_lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)")]
+    )
+    assert renderer._time_window(blocks) == (9 * 60, 18 * 60)
+
+
+def test_time_window_default_range_at_exact_boundary(renderer) -> None:
+    """수업이 정확히 기본 범위 경계(09:00-18:00)여도 흔들리지 않는다 (SPR-60).
+
+    올림/내림 경계(정확히 시간 단위)에서 base 보장값과 만나 회귀할 수 있는
+    지점을 검증한다.
+    """
+    blocks, _ = renderer.build_blocks(
+        [_lecture(schedule_room="월 09:00-18:00 (베어드홀 01101-김자헌)")]
+    )
+    assert renderer._time_window(blocks) == (9 * 60, 18 * 60)
 
 
 def test_time_window_empty_default(renderer) -> None:
     assert renderer._time_window([]) == (9 * 60, 18 * 60)
 
 
-def test_render_days_includes_weekend_only_when_present(renderer) -> None:
+def test_render_days_always_shows_weekdays_with_weekend(renderer) -> None:
+    """월~금은 항상 표시, 토는 수업이 있을 때만 추가 (SPR-60)."""
     blocks, _ = renderer.build_blocks(
         [
             _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
@@ -288,7 +310,23 @@ def test_render_days_includes_weekend_only_when_present(renderer) -> None:
             ),
         ]
     )
-    assert renderer._render_days(blocks) == ["월", "토"]
+    assert renderer._render_days(blocks) == ["월", "화", "수", "목", "금", "토"]
+
+
+def test_render_days_weekday_only_no_weekend(renderer) -> None:
+    """주중 수업만 있어도 월~금 전체 표시 (SPR-60)."""
+    blocks, _ = renderer.build_blocks(
+        [_lecture(schedule_room="수 10:30-12:00 (베어드홀 01101-김자헌)")]
+    )
+    assert renderer._render_days(blocks) == ["월", "화", "수", "목", "금"]
+
+
+def test_render_days_includes_sunday_when_present(renderer) -> None:
+    """일요일 수업이 있으면 월~금 다음 일이 추가된다 (SPR-60)."""
+    blocks, _ = renderer.build_blocks(
+        [_lecture(schedule_room="일 10:30-12:00 (베어드홀 01101-김자헌)")]
+    )
+    assert renderer._render_days(blocks) == ["월", "화", "수", "목", "금", "일"]
 
 
 # ── render_html (HTML 생성 + 충돌 강조) ─────────────────────────────────
@@ -302,6 +340,26 @@ def test_render_html_contains_grid(renderer) -> None:
     assert "알고리즘" in html_str
     assert "slot" in html_str
     assert "시간 충돌 없음" in html_str
+
+
+def test_render_html_shows_empty_weekday_columns(renderer) -> None:
+    """수업이 없는 요일도 컬럼이 항상 렌더링되어야 한다 (SPR-60)."""
+    blocks, _ = renderer.build_blocks(
+        [
+            _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164204",
+                name="자료구조",
+                schedule_room="수 10:30-12:00 (숭덕 02108-박은영)",
+            ),
+        ]
+    )
+    html_str = renderer.render_html(blocks, [])
+    # 월~금 5개 요일 헤더가 모두 있어야 함 (수업 없는 화/목도 포함)
+    for day in ("월", "화", "수", "목", "금"):
+        assert f">{day}<" in html_str
+    # 수업이 없는 요일 컬럼은 empty-note 마커로 표시
+    assert "empty-note" in html_str
 
 
 def test_render_html_marks_conflict(renderer) -> None:
