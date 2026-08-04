@@ -3,7 +3,7 @@ Rusaint 라이브러리를 사용한 유세인트 데이터 크롤링 서비스 
 
 - 학적/성적 이력: RusaintAcademicService 위임
 - 졸업사정표: RusaintGraduationService 위임
-- 전체 스냅샷(학적+졸업): 이 파일에서 직접 처리 (4세션 병렬)
+- 전체 스냅샷(학적/수강이력): 이 파일에서 직접 처리 (3세션 병렬)
 
 모든 공개 메서드는 JSON 직렬화된 유세인트 세션(session_json)을 받습니다.
 student_id/s_token은 더 이상 사용하지 않습니다.
@@ -38,7 +38,7 @@ class RusaintService:
     """
     유세인트 크롤링 파사드.
 
-    - fetch_usaint_snapshot: 전체 스냅샷 (학적+졸업, 4세션)
+    - fetch_usaint_snapshot: 전체 스냅샷 (학적+수강이력, 3세션)
     - fetch_usaint_snapshot_academic: 학적/성적만 → Academic 서비스 위임
     - fetch_usaint_graduation_info: 졸업사정표만 → Graduation 서비스 위임
     - find_lectures: 강의시간표 검색 → CourseSchedule 서비스 위임
@@ -57,7 +57,11 @@ class RusaintService:
         session_json: str,
     ) -> UsaintSnapshotResponse:
         """
-        JSON 직렬화 세션으로 유세인트 전체 스냅샷 조회 (학적+졸업, 4세션 병렬).
+        JSON 직렬화 세션으로 유세인트 전체 스냅샷 조회 (학적+수강이력, 3세션 병렬).
+
+        졸업사정표는 이 스냅샷에 포함되지 않는다 — 별도 도구
+        get_graduation_status(RusaintGraduationService)가 담당한다. 이전에는 졸업
+        세션을 함께 생성했으나 데이터 조회에 쓰이지 않아 병목만 유발해 제거했다.
         """
         start_time = time.time()
         logger.info("유세인트 데이터 조회 시작: [session_json]")
@@ -66,9 +70,8 @@ class RusaintService:
 
         try:
             session_start = time.time()
-            session_grad, session_course1, session_course2, session_student = (
+            session_course1, session_course2, session_student = (
                 await asyncio.gather(
-                    session_module.create_session_from_json(session_json),
                     session_module.create_session_from_json(session_json),
                     session_module.create_session_from_json(session_json),
                     session_module.create_session_from_json(session_json),
@@ -77,7 +80,6 @@ class RusaintService:
             logger.info(f"세션 복원 완료: {time.time() - session_start:.2f}초")
 
             sessions = [
-                ("grad", session_grad),
                 ("course1", session_course1),
                 ("course2", session_course2),
                 ("student", session_student),
@@ -85,9 +87,8 @@ class RusaintService:
 
             try:
                 app_start = time.time()
-                grad_app, course_grades_app1, course_grades_app2, student_info_app = (
+                course_grades_app1, course_grades_app2, student_info_app = (
                     await asyncio.gather(
-                        session_module.get_graduation_app(session_grad),
                         session_module.get_course_grades_app(session_course1),
                         session_module.get_course_grades_app(session_course2),
                         session_module.get_student_info_app(session_student),
