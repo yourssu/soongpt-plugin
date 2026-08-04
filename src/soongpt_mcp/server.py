@@ -335,7 +335,8 @@ async def find_lectures(
     - "major" / "recognized_other_major": collage, department 필수, major 선택
     - "graduated": collage, department 필수
     - "required_elective" / "chapel": lecture_name 필수
-    - "optional_elective": category 필수 (교양 분야명)
+    - "optional_elective": category 필수 (교양 분야명 또는 "전체" — "전체"는 전 학번
+      분야를 한 번에 조회하는 특수값. 분야별 분산 호출 대신 "전체" 1회로 충분 — SPR-68)
     - "connected_major" / "united_major": major 필수
     - "find_by_professor" / "find_by_lecture": keyword 필수
     - "education" / "cyber": 추가 파라미터 없음
@@ -374,8 +375,9 @@ async def list_optional_elective_categories(year: int, semester: str) -> dict:
 
     분야명은 학기/학번에 따라 다름 (예: "[‘23이후]과학·기술").
     해당 학기에 개설된 모든 교양선택 분야를 반환하므로, 사용자의 입학연도
-    (profile.entered_year) 기준으로 '[‘NN이후]'/'[‘NN이전]' 필터링은
-    호출자(스킬/LLM)가 처리해야 합니다.
+    (profile.entered_year) 기준으로 학번 태그 필터링은 호출자(스킬/LLM)가
+    처리해야 합니다 (태그 형태: "[‘23이후]", "[‘20,'21~'22]", "[‘19]",
+    "[‘16-'18]", "[‘15이전]" 등 — "[‘NN이전]" 표기는 실제로 존재하지 않음).
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
@@ -473,9 +475,11 @@ async def save_lectures_cache(year: int, semester: str, groups: dict) -> dict:
     groups 형태 (각 값은 LectureGroupEntry 호환 dict):
     {
       "major_primary": {"category_type": "major", "params": {...}, "lectures": [...], "count": N, "error": null},
-      "optional_elective_<분야명>": {"category_type": "optional_elective", "params": {...}, ...},
+      "optional_elective_all": {"category_type": "optional_elective", "params": {"category": "전체"}, ...},
       ...
     }
+    교양선택은 "전체" 1회 호출 결과를 단일 키 "optional_elective_all"로 저장한다
+    (SPR-68 — 옛 "optional_elective_<분야명>" 분산 키는 더 이상 사용하지 않음).
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
@@ -830,13 +834,13 @@ async def _fetch_basic_info_via_session() -> tuple[Any, list[str]]:
 
 
 def _merge_profile_from_basic_info(basic_info: Any) -> UserProfile:
-    """USAINT basicInfo를 프로필에 병합 (USAINT 9필드만 덮어쓰기).
+    """USAINT basicInfo를 프로필에 병합 (USAINT 10필드만 덮어쓰기).
 
     기존 프로필의 학번/이름/트랙 등 사용자 입력 필드는 보존하고,
-    USAINT가 제공하는 9개 필드(department, college, grade, entered_year,
-    double_major, connected_major, minor, teaching_certification,
-    teaching_major)만 갱신. get_usaint_snapshot과 refresh_user_profile이
-    공용으로 사용한다.
+    USAINT가 제공하는 10개 필드(department, college, grade, actual_grade,
+    entered_year, double_major, connected_major, minor,
+    teaching_certification, teaching_major)만 갱신. get_usaint_snapshot과
+    refresh_user_profile이 공용으로 사용한다.
 
     college 병합 정책: 다른 USAINT 필드와 동일하게 **USAINT 값을 우선
     덮어쓴다**. SPR-55 이전엔 USAINT collage를 추출하지 않아 college가 항상
@@ -851,6 +855,7 @@ def _merge_profile_from_basic_info(basic_info: Any) -> UserProfile:
             "department": fresh.department,
             "college": fresh.college,
             "grade": fresh.grade,
+            "actual_grade": fresh.actual_grade,
             "entered_year": fresh.entered_year,
             "double_major": fresh.double_major,
             "connected_major": fresh.connected_major,
@@ -894,6 +899,10 @@ async def set_user_profile(field: str, value: Any) -> dict:
     None으로(또는 bool 필드의 경우 False로) 설정합니다.
     updated_at은 자동 갱신됩니다.
 
+    grade를 정정하면 actual_grade(보정 전 실제 학년)도 함께 갱신됩니다 —
+    채플 분기(1학년→소그룹채플)는 actual_grade를 쓰므로, grade를 정정하면
+    실제 학년도 그 값으로 맞춰집니다.
+
     프로필이 없으면 빈 프로필을 생성한 뒤 필드를 채웁니다.
     """
     if field not in SUBMISSION_FIELDS:
@@ -911,10 +920,11 @@ async def set_user_profile(field: str, value: Any) -> dict:
 async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
     """USAINT에서 학적 기본 정보를 재추출해 프로필을 갱신 (~2-3초).
 
-    preserve_user_overrides=True(기본)면 USAINT가 제공하는 9개 필드
-    (department, college, grade, entered_year, double_major, connected_major,
-    minor, teaching_certification, teaching_major)를 항상 USAINT 값으로
-    덮어쓰고, 나머지 필드(student_id, name, track)는 기존 저장값을 보존합니다.
+    preserve_user_overrides=True(기본)면 USAINT가 제공하는 10개 필드
+    (department, college, grade, actual_grade, entered_year, double_major,
+    connected_major, minor, teaching_certification, teaching_major)를 항상
+    USAINT 값으로 덮어쓰고, 나머지 필드(student_id, name, track)는 기존
+    저장값을 보존합니다.
 
     college도 USAINT에서 추출 가능하므로(SPR-55) 기존 사용자 수동 입력
     college가 있어도 USAINT 값을 우선 덮어씁니다.
@@ -933,6 +943,7 @@ async def refresh_user_profile(preserve_user_overrides: bool = True) -> dict:
         "department",
         "college",
         "grade",
+        "actual_grade",
         "entered_year",
         "double_major",
         "connected_major",

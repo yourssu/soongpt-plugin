@@ -197,6 +197,50 @@ def test_from_basic_info_college_from_pydantic_model() -> None:
     assert p.college == "IT대학"
 
 
+def test_from_basic_info_maps_actual_grade() -> None:
+    """SPR-71: BasicInfo.actual_grade(보정 전 실제 학년)가 프로필로 매핑된다."""
+    basic = {
+        "year": 2023,
+        "grade": 2,
+        "actual_grade": 1,
+        "semester": 3,
+        "department": "컴퓨터학부",
+    }
+    p = UserProfile.from_basic_info(basic)
+    assert p.actual_grade == 1
+
+
+def test_from_basic_info_actual_grade_defaults_none_when_absent() -> None:
+    """구버전 BasicInfo(actual_grade 키 없음)는 None — 채플 분기는 grade로 폴백."""
+    p = UserProfile.from_basic_info(
+        {"year": 2024, "grade": 1, "semester": 2, "department": "컴퓨터학부"}
+    )
+    assert p.actual_grade is None
+    assert p.grade == 1
+
+
+def test_apply_partial_update_grade_syncs_actual_grade() -> None:
+    """사용자가 grade를 직접 정정하면 actual_grade도 함께 갱신 (PT-87 보정 미섞임)."""
+    p = UserProfile(grade=1, actual_grade=1)
+    updated = p.apply_partial_update({"grade": 3})
+    assert updated.grade == 3
+    assert updated.actual_grade == 3
+
+
+def test_apply_partial_update_clearing_grade_clears_actual_grade() -> None:
+    p = UserProfile(grade=3, actual_grade=3)
+    updated = p.apply_partial_update({"grade": ""})
+    assert updated.grade is None
+    assert updated.actual_grade is None
+
+
+def test_apply_partial_update_rejects_actual_grade_direct_submission() -> None:
+    """actual_grade는 read-only 파생 필드 — 단독 제출은 거부."""
+    p = UserProfile()
+    with pytest.raises(ValueError, match="알 수 없는 프로필 필드"):
+        p.apply_partial_update({"actual_grade": 2})
+
+
 def test_apply_partial_update_strips_double_major_whitespace() -> None:
     p = UserProfile()
     updated = p.apply_partial_update({"double_major": "  경영학과  "})

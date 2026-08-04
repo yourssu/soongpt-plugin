@@ -11,9 +11,9 @@ USAINT fetch는 실제 호출하지 않는다.
 from __future__ import annotations
 
 import asyncio
-import inspect
 from collections.abc import Awaitable, Callable
-from typing import Any
+from pathlib import Path
+from typing import Any, Self
 
 import pytest
 
@@ -21,6 +21,32 @@ from soongpt_mcp import server
 from soongpt_mcp.config import Config
 
 _FakeRun = Callable[[Any], Awaitable[dict[str, Any]]]
+
+
+class _TrackingSemaphore:
+    """asyncio.Semaphore를 감싸 acquire 호출 횟수를 기록하는 spy.
+
+    "어떤 도구가 세마포어를 획득하는가"를 런타임에 관찰하기 위한 래퍼 —
+    소스 문자열 고정 검사(inspect.getsource) 대신 행위 기반으로 검증한다.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._sem = asyncio.Semaphore(limit)
+        self.acquire_count = 0
+
+    async def acquire(self) -> None:
+        self.acquire_count += 1
+        await self._sem.acquire()
+
+    def release(self) -> None:
+        self._sem.release()
+
+    async def __aenter__(self) -> Self:
+        await self.acquire()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self.release()
 
 
 @pytest.fixture(autouse=True)
@@ -146,39 +172,119 @@ async def test_semaphore_is_memoized_within_loop() -> None:
     assert a is b
 
 
-def test_only_course_schedule_tools_are_gated() -> None:
-    """세마포어 스코프 격리 회귀 가드 (SPR-67 핵심 요구사항).
+@pytest.mark.asyncio
+async def test_only_course_schedule_tools_are_gated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """행위 기반 스코프 격리 검증 (SPR-67 핵심 요구사항).
 
     강의시간표 3개 도구(find_lectures / list_required_electives /
-    list_optional_elective_categories)만 세마포어를 획득하고, 그 외 USAINT
-    도구는 획득하지 않는다는 불변을 소스 수준에서 고정한다.
+    list_optional_elective_categories)는 세마포어를 실제로 획득하고, 그 외
+    USAINT 도구(get_usaint_snapshot / get_graduation_status /
+    refresh_user_profile / load_department_map)는 획득하지 않는다는 계약을
+    **런타임에 관찰**한다. 세마포어 acquire를 기록하는 spy로 검증하므로,
+    기존의 소스 문자열 고정 검사(inspect.getsource)처럼 정당한 리팩토링만으로
+    깨지지 않는다.
 
-    행위 기반 테스트는 get_usaint_snapshot의 내부(캐시·프로필 병합·파일 저장)
-    를 전부 mock해야 해서 비용이 크므로, 이 구조적 가드로 "어떤 도구가
-    세마포어를 타는가" 계약을 잡는다. 누군가 실수로 snapshot/department_map
-    등을 래핑하면 이 테스트가 잡는다.
+    _run_with_session을 스텁해 "포털 호출 1회"를 시뮬레이션하고, 각 도구가
+    실제로 호출하는 RusaintService 메서드도 함께 스텁한다 (미핑 핸들러는
+    실제 USAINT fetch를 막는다).
     """
-    gated = [
-        server.find_lectures,
-        server.list_required_electives,
-        server.list_optional_elective_categories,
-    ]
-    not_gated = [
-        server.get_usaint_snapshot,
-        server.get_graduation_status,
-        server.refresh_user_profile,
-        server.load_department_map,
-    ]
-    marker = "_get_course_schedule_semaphore"
-    for fn in gated:
-        assert marker in inspect.getsource(fn), (
-            f"{getattr(fn, '__name__', fn)!r}는 강의시간표 세마포어를 획득해야 함"
+    from soongpt_mcp.services.rusaint_service import RusaintService
+
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
+
+    tracker = _TrackingSemaphore(limit=Config().course_schedule_concurrency)
+    monkeypatch.setattr(server, "_get_course_schedule_semaphore", lambda: tracker)
+
+    async def fake_run(func: Any) -> Any:
+        return await func("dummy-session")
+
+    monkeypatch.setattr(server, "_run_with_session", fake_run)
+
+    # --- gated 도구: 세마포어를 획득한다 (acquire_count 증가) ---
+    async def fake_find_lectures(self: Any, session_json: str, **kwargs: Any) -> dict:
+        return {"lectures": [], "count": 0, "fetchTime": "0.00s"}
+
+    async def fake_required_electives(
+        self: Any, session_json: str, year: int, semester: str
+    ) -> dict:
+        return {"lecture_names": [], "count": 0, "fetchTime": "0.00s"}
+
+    async def fake_optional_categories(
+        self: Any, session_json: str, year: int, semester: str
+    ) -> dict:
+        return {"categories": [], "count": 0, "fetchTime": "0.00s"}
+
+    monkeypatch.setattr(RusaintService, "find_lectures", fake_find_lectures)
+    monkeypatch.setattr(
+        RusaintService, "find_required_electives", fake_required_electives
+    )
+    monkeypatch.setattr(
+        RusaintService, "find_optional_elective_categories", fake_optional_categories
+    )
+
+    await server.find_lectures(2026, "2", "required_elective", lecture_name="L1")
+    await server.list_required_electives(2026, "2")
+    await server.list_optional_elective_categories(2026, "2")
+    assert tracker.acquire_count == 3, (
+        f"강의시간표 3개 도구는 각각 세마포어를 획득해야 함: "
+        f"acquire_count={tracker.acquire_count}"
+    )
+
+    # --- non-gated 도구: 세마포어를 획득하지 않는다 (acquire_count 불변) ---
+    from soongpt_mcp.schemas.usaint_schemas import (
+        BasicInfo,
+        Flags,
+        UsaintSnapshotResponse,
+    )
+
+    async def fake_snapshot(self: Any, session_json: str) -> UsaintSnapshotResponse:
+        return UsaintSnapshotResponse(
+            takenCourses=[],
+            lowGradeSubjectCodes=[],
+            flags=Flags(),
+            basicInfo=BasicInfo(
+                year=2023, grade=3, semester=5, department="컴퓨터학부"
+            ),
+            warnings=[],
         )
-    for fn in not_gated:
-        assert marker not in inspect.getsource(fn), (
-            f"{getattr(fn, '__name__', fn)!r}는 강의시간표 세마포어를 획득하면 안 됨 "
-            "(스코프 격리 위반)"
+
+    async def fake_graduation(self: Any, session_json: str) -> dict:
+        return {"requirements": [], "graduationSummary": {"chapel": {"satisfied": False}}}
+
+    async def fake_basic_info(
+        self: Any, session_json: str
+    ) -> tuple[BasicInfo, list[str]]:
+        return (
+            BasicInfo(
+                year=2023, grade=3, semester=5, department="컴퓨터학부"
+            ),
+            [],
         )
+
+    async def fake_dept_map(
+        self: Any, session_json: str, year: int, semester: str
+    ) -> dict:
+        return {"mapping": {"컴퓨터학부": "IT대학"}}
+
+    monkeypatch.setattr(RusaintService, "fetch_usaint_snapshot", fake_snapshot)
+    monkeypatch.setattr(
+        RusaintService, "fetch_usaint_graduation_info", fake_graduation
+    )
+    monkeypatch.setattr(RusaintService, "fetch_basic_info", fake_basic_info)
+    monkeypatch.setattr(RusaintService, "build_department_map", fake_dept_map)
+
+    await server.get_usaint_snapshot(force_refresh=True)
+    await server.get_graduation_status(force_refresh=True)
+    await server.refresh_user_profile(preserve_user_overrides=True)
+    await server.load_department_map(2026, force_refresh=True)
+
+    assert tracker.acquire_count == 3, (
+        f"non-gated 도구는 세마포어를 획득하면 안 됨 (스코프 격리 위반): "
+        f"acquire_count={tracker.acquire_count}"
+    )
 
 
 @pytest.mark.asyncio

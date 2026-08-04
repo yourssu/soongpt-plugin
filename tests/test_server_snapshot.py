@@ -383,3 +383,31 @@ async def test_snapshot_response_exposes_college_in_basic_info(
     cached_result = await server.get_usaint_snapshot()
     assert cached_result["_cache"]["source"] == "cache"
     assert cached_result["basicInfo"]["college"] == "공과대학"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_response_exposes_actual_grade_in_basic_info(
+    isolated_root: Path,
+    fixed_period: tuple[int, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SPR-71: get_usaint_snapshot 응답 basicInfo에 actual_grade(보정 전 실제 학년) 노출.
+
+    composer ④ 채플 분기가 basicInfo.actual_grade를 읽으므로 fresh/캐시 hit
+    양쪽에서 노출돼야 한다. (grade는 PT-87 보정값 2, actual_grade는 실제 학년 1)
+    """
+    snapshot = _make_snapshot(
+        basicInfo=BasicInfo(
+            year=2026, grade=2, semester=3, department="컴퓨터학부", actual_grade=1
+        )
+    )
+    _patch_service(monkeypatch, snapshot)
+
+    result = await server.get_usaint_snapshot()
+    assert result["_cache"]["source"] == "fresh"
+    assert result["basicInfo"]["grade"] == 2
+    assert result["basicInfo"]["actual_grade"] == 1
+
+    cached_result = await server.get_usaint_snapshot()
+    assert cached_result["_cache"]["source"] == "cache"
+    assert cached_result["basicInfo"]["actual_grade"] == 1

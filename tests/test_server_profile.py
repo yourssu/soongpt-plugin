@@ -42,13 +42,20 @@ def stub_basic_info(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         semester=5,
         department="컴퓨터학부",
         college="공과대학",
+        actual_grade=3,
     )
 
     async def fake_fetch() -> tuple[BasicInfo, list[str]]:
         return basic, []
 
     monkeypatch.setattr(server, "_fetch_basic_info_via_session", fake_fetch)
-    return {"year": 2023, "grade": 3, "department": "컴퓨터학부", "college": "공과대학"}
+    return {
+        "year": 2023,
+        "grade": 3,
+        "actual_grade": 3,
+        "department": "컴퓨터학부",
+        "college": "공과대학",
+    }
 
 
 @pytest.fixture
@@ -209,11 +216,13 @@ async def test_refresh_preserves_user_overrides(
 
     assert profile["department"] == "컴퓨터학부"
     assert profile["grade"] == 3
+    assert profile["actual_grade"] == 3
     assert profile["entered_year"] == 2023
     # SPR-55: college는 USAINT 제공 필드 — 사용자 수동 입력 대신 USAINT 값 우선
     assert profile["college"] == "공과대학"
 
     assert sorted(result["refreshed_fields"]) == [
+        "actual_grade",
         "college",
         "connected_major",
         "department",

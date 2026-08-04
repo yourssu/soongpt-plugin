@@ -48,7 +48,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 - **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
 - **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
-- **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_optional_elective_categories`/`list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
+- **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
@@ -142,23 +142,24 @@ find_lectures(year, semester, category_type="optional_elective",
 
 #### 3-C. 단일 카테고리 (2~3회 병렬)
 
-- **채플** (필수 1회 — `profile.grade` 기반 단일 호출, 병렬 2회 아님):
-  - **채플 종류 분리 배경**: USAINT 채플은 `"비전채플"`(2학년+)과 `"소그룹채플"`(1학년)로 나뉘며, `lecture_name="채플"`은 **무효값**이라 WebDynpro 예외(`Cannot find 채플 option`)가 난다. 그래서 **정확한 채플명 둘 중 하나**로 조회해야 한다. 어느 한쪽만 필요하므로 grade로 한 번만 호출한다 (둘 다 부를 필요 없음).
-  - **grade 분기**:
-    - `grade == 1`:
+- **채플** (필수 1회 — 실제 학년 기반 단일 호출, 병렬 2회 아님):
+  - **채플 종류 분리 배경**: USAINT 채플은 `"비전채플"`(2학년+)과 `"소그룹채플"`(1학년)로 나뉘며, `lecture_name="채플"`은 **무효값**이라 WebDynpro 예외(`Cannot find 채플 option`)가 난다. 그래서 **정확한 채플명 둘 중 하나**로 조회해야 한다. 어느 한쪽만 필요하므로 실제 학년으로 한 번만 호출한다 (둘 다 부를 필요 없음).
+  - **실제 학년(actual_grade) 분기** — `profile.actual_grade`(보정 전 실제 학년, PT-87 +1학기 보정과 무관) 사용. `actual_grade`가 없으면 `profile.grade`로 폴백:
+    - `actual_grade == 1` (폴백 시 `profile.grade == 1`):
       ```
       find_lectures(year, semester, category_type="chapel",
                     lecture_name="소그룹채플")
       ```
-    - `grade >= 2` **또는 grade 불명/None 폴백**:
+    - `actual_grade >= 2` **또는 actual_grade/grade 불명·None 폴백**:
       ```
       find_lectures(year, semester, category_type="chapel",
                     lecture_name="비전채플")
       ```
   → `groups["chapel"]` (단일 그룹 — 호출한 한 종류만 담김)
-  - **grade 불명 폴백 = 비전채플**: grade는 진입 절차 1번 필수 필드라 통상 확보돼 있지만, 누락 시엔 기존 다수 사용자(2학년+) 기본값인 비전채플로.
-  - **채플 종류의 데이터 격리**: grade==1이면 캐시 `chapel`엔 소그룹채플만, grade>=2면 비전채플만 들어간다. composer는 grade에 맞는 한 종류만 있다고 가정하고 동작한다.
-  - 사용자가 특정 채플명(예: "한국인채플")을 명시하면 grade 무관 그 이름으로 조회.
+  - **왜 actual_grade인가**: `profile.grade`는 PT-87 임시 보정(+1학기)이 들어가 1학년 2학기 학생이 grade=2로 올라 비전채플로 오라우팅될 수 있다 (SPR-71). 채플은 1학년 전체(1학기/2학기 절반씩)가 소그룹채플이므로 **보정 전 실제 학년**으로 분기한다.
+  - **actual_grade 불명 폴백 = 비전채플**: actual_grade는 보통 프로필(`get_user_profile().actual_grade`)에 있지만 구버전 데이터/수동 입력 등으로 없을 수 있다. 이때 `profile.grade`로 폴백하고, 그것도 없으면 기존 다수 사용자(2학년+) 기본값인 비전채플로.
+  - **채플 종류의 데이터 격리**: actual_grade==1이면 캐시 `chapel`엔 소그룹채플만, actual_grade>=2면 비전채플만 들어간다. composer는 실제 학년에 맞는 한 종류만 있다고 가정하고 동작한다.
+  - 사용자가 특정 채플명(예: "한국인채플")을 명시하면 실제 학년 무관 그 이름으로 조회.
 
 - **숭실사이버대** (필수 1회):
   ```
@@ -241,9 +242,9 @@ find_lectures(year, semester, category_type="optional_elective",
     "count": K,
     "error": null
   },
-  "chapel": {  # grade==1 → "소그룹채플", grade>=2/불명 → "비전채플" (단일 호출, 한 종류만)
+  "chapel": {  # actual_grade==1 → "소그룹채플", actual_grade>=2/불명 → "비전채플" (단일 호출, 한 종류만)
     "category_type": "chapel",
-    "params": {"lecture_name": "비전채플"},  # 또는 "소그룹채플" — 실제 grade 분기로 정해진 값
+    "params": {"lecture_name": "비전채플"},  # 또는 "소그룹채플" — 실제 학년(actual_grade) 분기로 정해진 값
     "lectures": [...],
     "count": K,
     "error": null
@@ -304,7 +305,7 @@ find_lectures(year, semester, category_type="optional_elective",
   - 부전공: `profile.minor` 있을 때 (동일)
   - 연계·융합: `profile.connected_major` 있을 때 (`connected_major` + `united_major` 양쪽 시도, 한쪽은 예외로 정상 무시)
   - 교직: `profile.teaching_certification == True`일 때
-- **채플 lecture_name (grade 기반 단일 호출)**: `"채플"`은 무효값(에러). `grade==1` → `"소그룹채플"`, `grade>=2`/불명 → `"비전채플"`로 **한 번만** 조회해 `groups["chapel"]`에 담는다 (병렬 2회 아님). 사용자가 특정 채플명(예: "한국인채플")을 명시하면 grade 무관 그 이름으로. 두 종류는 grade로 분리돼 캐시에 섞이지 않는다 → composer는 grade에 맞는 한 종류만 있다고 가정.
+- **채플 lecture_name (실제 학년 기반 단일 호출)**: `"채플"`은 무효값(에러). `profile.actual_grade`(보정 전 실제 학년, 없으면 `profile.grade` 폴백) `== 1` → `"소그룹채플"`, `>= 2`/불명 → `"비전채플"`로 **한 번만** 조회해 `groups["chapel"]`에 담는다 (병렬 2회 아님). 사용자가 특정 채플명(예: "한국인채플")을 명시하면 실제 학년 무관 그 이름으로. 두 종류는 실제 학년으로 분리돼 캐시에 섞이지 않는다 → composer는 실제 학년에 맞는 한 종류만 있다고 가정.
 - **교양필수**: `list_required_electives`가 반환한 과목명 전체를 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`로 각각 조회. 연도 필터링 없음 (optional_elective와 달리 과목명에 학번 태그 없음)
 - **교양필수 그룹 키 재사용**: `groups["required_elective_<과목명>"]`의 `<과목명>`은 `list_required_electives`가 반환한 **원본 문자열을 그대로** 써야 한다 (대괄호 `[SW와AI]`, 괄호 `(...)`, `&` 등 특수문자 포함). 후속 소비자가 키를 재구성할 때는 캐시의 groups 키를 그대로 조회하거나, 해당 그룹의 `params.lecture_name`(원본 과목명)으로 역조회하라.
 - **인터뷰 결과 소비**: `subject_preferences`에서 필수 과목/관심 분야 추출해 우선 순위 반영 — **이 이슈에서는 보류**, 후속 PR

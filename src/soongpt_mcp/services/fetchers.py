@@ -67,6 +67,12 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
             logger.error("학년 정보를 찾을 수 없습니다")
             raise ValueError("필수 학적 정보(학년)를 조회할 수 없습니다")
 
+        # 보정 전 실제 학년 보존 — 아래 PT-87 임시 +1학기 보정과 무관한 '현재 실제
+        # 학년'. 채플 분기(1학년→소그룹채플, 2학년+→비전채플) 등 실제 학년이 필요한
+        # 판단은 이 값을 쓴다 (SPR-71). USAINT grade는 휴학/엇학기/졸업유예를 반영한
+        # 권위 값이므로 계산(입학연도 기준) 대신 그대로 보존한다.
+        actual_grade = grade
+
         term_raw = getattr(student_info, "term", None) or getattr(
             student_info, "semester", None
         )
@@ -124,6 +130,7 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
             year=admission_year,
             grade=grade,
             semester=semester,
+            actual_grade=actual_grade,
             department=department,
             college=college,
             double_major=double_major,

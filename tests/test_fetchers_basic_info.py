@@ -90,6 +90,42 @@ async def test_fetch_basic_info_collage_strips_whitespace() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_basic_info_freshman_second_semester_actual_grade_stays_one() -> None:
+    """SPR-71 회귀: 1학년 2학기 학생(grade=1, term=2)은 채플 분기에서 소그룹채플로.
+
+    PT-87 임시 +1학기 보정은 semester 2→3, grade를 2로 올린다. 이 보정값(grade)으로
+    채플 분기를 하면 1학년 2학기 학생이 비전채플로 오라우팅된다. actual_grade는
+    USAINT 원본 학년(1)을 그대로 보존해 1학년 → 소그룹채플 라우팅을 보장한다.
+    """
+    app = _FakeStudentInfoApp(_default_info(grade=1, term=2))
+    basic, _ = await fetch_basic_info(app)
+
+    # PT-87 보정은 학기 추천용으로 그대로 유지된다 (semester 3 / grade 2).
+    assert basic.semester == 3
+    assert basic.grade == 2
+    # 채플 분기용 실제 학년은 1 — 1학년 2학기도 소그룹채플.
+    assert basic.actual_grade == 1
+
+
+@pytest.mark.asyncio
+async def test_fetch_basic_info_actual_grade_matches_usa_int_grade() -> None:
+    """actual_grade는 PT-87 보정과 무관하게 USAINT 원본 학년을 보존한다."""
+    cases = [
+        (1, 1, 1),  # 1학년 1학기 → actual 1
+        (2, 1, 2),  # 2학년 1학기 → actual 2
+        (2, 2, 2),  # 2학년 2학기 → actual 2
+        (4, 2, 4),  # 4학년 2학기 → actual 4
+    ]
+    for usa_grade, term, expected in cases:
+        app = _FakeStudentInfoApp(_default_info(grade=usa_grade, term=term))
+        basic, _ = await fetch_basic_info(app)
+        assert basic.actual_grade == expected, (
+            f"grade={usa_grade}, term={term} → actual_grade={basic.actual_grade} "
+            f"(expected {expected})"
+        )
+
+
+@pytest.mark.asyncio
 async def test_fetch_basic_info_keeps_existing_fields_with_collage() -> None:
     """collage 추출이 기존 필드 추출을 깨지 않는지 확인."""
     app = _FakeStudentInfoApp(
