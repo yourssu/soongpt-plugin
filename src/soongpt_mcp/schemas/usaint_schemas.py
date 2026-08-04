@@ -67,6 +67,16 @@ class BasicInfo(BaseModel):
     year: int = Field(..., description="기준 연도 (예: 2025)")
     grade: int = Field(..., ge=1, le=4, description="학년 (1~4)")
     semester: int = Field(..., ge=1, le=8, description="재학 누적 학기 (1~8)")
+    actual_grade: int | None = Field(
+        None,
+        ge=1,
+        le=6,
+        description=(
+            "보정 전 실제 학년 (1~6) — PT-87 임시 +1학기 보정이 들어가지 않은 "
+            "USAINT 원본 학년. 채플 분기(1학년→소그룹채플, 2학년+→비전채플)처럼 "
+            "'현재 실제 학년'이 필요한 판단에 사용. 구버전 캐시에는 없을 수 있어 Optional."
+        ),
+    )
     department: str = Field(..., description="주전공 학과명")
     college: str | None = Field(
         None, description="단과대 (rusaint.collage — SPR-55에서 추출)"

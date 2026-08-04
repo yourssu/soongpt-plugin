@@ -49,6 +49,16 @@ class UserProfile(BaseModel):
     college: str | None = Field(None, description="단과대")
     department: str | None = Field(None, description="주전공 학과")
     grade: int | None = Field(None, description="학년 (1~6)", ge=1, le=6)
+    actual_grade: int | None = Field(
+        None,
+        ge=1,
+        le=6,
+        description=(
+            "보정 전 실제 학년 (USAINT 원본 grade, 1~6) — PT-87 임시 +1학기 보정과 "
+            "무관. 채플 등 '현재 실제 학년' 분기(1학년→소그룹채플)에 사용. "
+            "set_user_profile로 grade를 정정하면 함께 갱신됨."
+        ),
+    )
     track: str | None = Field(None, description="세부 전공/트랙 (선택)")
     entered_year: int | None = Field(None, description="입학 연도")
     double_major: str | None = Field(
@@ -130,6 +140,7 @@ class UserProfile(BaseModel):
             department=data.get("department"),
             college=data.get("college"),
             grade=data.get("grade"),
+            actual_grade=data.get("actual_grade"),
             entered_year=data.get("year"),
             double_major=data.get("double_major"),
             connected_major=data.get("connected_major"),
@@ -155,6 +166,11 @@ class UserProfile(BaseModel):
                 if not v:
                     v = None
             merged[k] = v
+        # 사용자가 grade를 직접 정정하면 그것이 곧 실제 학년이므로 actual_grade도
+        # 함께 갱신한다 (PT-87 보정값이 섞이지 않게). actual_grade 단독 제출은
+        # SUBMISSION_FIELDS에 없어 허용되지 않는다 (read-only 파생 필드).
+        if "grade" in updates:
+            merged["actual_grade"] = merged["grade"]
         merged["updated_at"] = datetime.now(timezone.utc)
 
         return self.__class__.model_validate(merged)
