@@ -92,7 +92,7 @@ bash scripts/run-server.sh
 - **보안**: 학번/비밀번호는 디스크에 저장되지 않음. OS 키체인만 사용
 - **가공 전 데이터 제공**: 데이터 해석/추천 로직은 Claude에게 맡김
 - **사용자 프로필 영속화**: 매번 USAINT를 호출하지 않고 학적 컨텍스트를 로컬에 저장
-- **19개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색, 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드/저장, 시간표 파싱/충돌 검사, 시간표 후보 로드/저장/삭제, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
+- **18개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색(서버 측 캐시 자동 저장), 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드, 시간표 파싱/충돌 검사, 시간표 후보 로드/저장/삭제, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
 
 ## 도구
 
@@ -100,11 +100,10 @@ bash scripts/run-server.sh
 |---|---|---|
 | `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 subjects 인라인), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시, 프로필 자동 저장). `subjectNames`는 subjects에서 자동 파생 | 캐시 hit 즉시 / 미스 ~9초 |
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
-| `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션) | ~3초 |
+| `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션). 기본 `save_to_cache=True`로 결과를 서버 측에서 캐시에 자동 그룹 저장 (SPR-75) | ~3초 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분) | 즉시 |
-| `save_lectures_cache` | 스킬이 find_lectures N회 결과를 취합해 캐시로 적재 | 즉시 |
 | `parse_lectures_cache` | 강의 캐시를 시간표 파싱 결과로 변환 — parsed + subject_groups(분반 그룹) + stats | 즉시 |
 | `check_timetable_conflicts` | 단일 후보 강의 리스트의 시간 충돌 검사 (30개 초과 시 오류) | 즉시 |
 | `load_timetable_candidates` | 저장된 시간표 후보 로드 (TTL 없음, `_cache.source`로 hit/miss 구분) | 즉시 |
