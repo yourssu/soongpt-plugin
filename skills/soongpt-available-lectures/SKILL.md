@@ -44,7 +44,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 #### 3-0. find_lectures 묶음 크기 (~4개, 중요)
 
-`find_lectures`가 여러 번 필요한 구간(아래 3-A 전공 계열·3-B 교양 전체·3-C 단일 카테고리)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
+`find_lectures`를 **4개 초과**로 쏴야 하는 구간(주로 **3-B 교양 전체**; 3-A·3-C는 한 묶음에 다 들어오므로 그냥 한 번에 병렬)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
 
 - **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
 - **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.

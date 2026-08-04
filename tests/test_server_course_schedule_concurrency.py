@@ -11,12 +11,16 @@ USAINT fetch는 실제 호출하지 않는다.
 from __future__ import annotations
 
 import asyncio
+import inspect
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
 
 from soongpt_mcp import server
 from soongpt_mcp.config import Config
+
+_FakeRun = Callable[[Any], Awaitable[dict[str, Any]]]
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +34,7 @@ def _reset_course_schedule_semaphore() -> None:
     server._course_schedule_semaphore = None
 
 
-def _make_concurrency_tracker() -> tuple[Any, list[int]]:
+def _make_concurrency_tracker() -> tuple[_FakeRun, dict[str, int]]:
     """동시 실행 수를 측정하는 fake _run_with_session과 peak 공유 리스트 반환.
 
     fake는 진입 시 current += 1, peak 갱신, 잠깐 대기 후 이탈(current -= 1).
@@ -71,11 +75,11 @@ async def test_find_lectures_concurrency_capped_at_config_limit(
         ]
     )
 
-    # 상한 초과 금지 (핵심 불변) + 직렬화로 1로 떨어지지 않음 (과직렬화 회귀 감지)
-    assert state["peak"] <= limit, (
-        f"동시 실행 수 {state['peak']}가 상한 {limit}을 초과"
+    # 상한을 정확히 채움: gather + sleep 시맨틱으로 첫 limit개가 모두 동시에 진입하므로
+    # peak == limit 이 결정적. 초과 금지(핵심 불변)와 과직렬화(1로 떨어짐)를 한 번에 잡는다.
+    assert state["peak"] == limit, (
+        f"동시 실행 수 {state['peak']}가 상한 {limit}과 다름 (초과 또는 과직렬화)"
     )
-    assert state["peak"] >= 2, "동시 실행이 거의 일어나지 않음 (세마포어 과직렬화 의심)"
 
 
 @pytest.mark.asyncio
@@ -103,10 +107,10 @@ async def test_course_schedule_tools_share_one_semaphore(
 
     await _fire_concurrently(coros)
 
-    assert state["peak"] <= limit, (
-        f"세 도구 합산 동시 실행 {state['peak']}가 공유 상한 {limit}을 초과"
+    assert state["peak"] == limit, (
+        f"세 도구 합산 동시 실행 {state['peak']}가 공유 상한 {limit}과 다름 "
+        "(초과 → 세마포어 미공유, 미달 → 과직렬화)"
     )
-    assert state["peak"] >= 2
 
 
 @pytest.mark.asyncio
@@ -140,3 +144,64 @@ async def test_semaphore_is_memoized_within_loop() -> None:
     a = server._get_course_schedule_semaphore()
     b = server._get_course_schedule_semaphore()
     assert a is b
+
+
+def test_only_course_schedule_tools_are_gated() -> None:
+    """세마포어 스코프 격리 회귀 가드 (SPR-67 핵심 요구사항).
+
+    강의시간표 3개 도구(find_lectures / list_required_electives /
+    list_optional_elective_categories)만 세마포어를 획득하고, 그 외 USAINT
+    도구는 획득하지 않는다는 불변을 소스 수준에서 고정한다.
+
+    행위 기반 테스트는 get_usaint_snapshot의 내부(캐시·프로필 병합·파일 저장)
+    를 전부 mock해야 해서 비용이 크므로, 이 구조적 가드로 "어떤 도구가
+    세마포어를 타는가" 계약을 잡는다. 누군가 실수로 snapshot/department_map
+    등을 래핑하면 이 테스트가 잡는다.
+    """
+    gated = [
+        server.find_lectures,
+        server.list_required_electives,
+        server.list_optional_elective_categories,
+    ]
+    not_gated = [
+        server.get_usaint_snapshot,
+        server.get_graduation_status,
+        server.refresh_user_profile,
+        server.load_department_map,
+    ]
+    marker = "_get_course_schedule_semaphore"
+    for fn in gated:
+        assert marker in inspect.getsource(fn), (
+            f"{getattr(fn, '__name__', fn)!r}는 강의시간표 세마포어를 획득해야 함"
+        )
+    for fn in not_gated:
+        assert marker not in inspect.getsource(fn), (
+            f"{getattr(fn, '__name__', fn)!r}는 강의시간표 세마포어를 획득하면 안 됨 "
+            "(스코프 격리 위반)"
+        )
+
+
+@pytest.mark.asyncio
+async def test_semaphore_floor_prevents_deadlock_on_zero_or_negative_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """config 값이 0/음수여도 세마포어는 최소 1 → 교착 상태(영원히 대기) 방지.
+
+    asyncio.Semaphore(0)은 acquire가 반환하지 않아 모든 강의 조회 도구가
+    조용히 멈춘다. max(1, ...) 하한선이 이 foot-gun을 막는지 검증 — 0/-1/-5를
+    넣어도 1회 획득이 즉시(타임아웃 내) 반환되어야 한다.
+    """
+    for bad_value in (0, -1, -5):
+        monkeypatch.setattr(
+            server,
+            "get_config",
+            lambda v=bad_value: Config(course_schedule_concurrency=v),
+        )
+        server._course_schedule_semaphore = None  # lazy 재생성 강제
+        sem = server._get_course_schedule_semaphore()
+        assert sem._value == 1, (
+            f"config={bad_value}일 때 세마포어 값이 {sem._value} (max(1,…) 보정 안 됨)"
+        )
+        await asyncio.wait_for(sem.acquire(), timeout=1.0)  # 교착이면 타임아웃
+        sem.release()
+        server._course_schedule_semaphore = None

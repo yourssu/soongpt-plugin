@@ -124,11 +124,16 @@ def _get_course_schedule_semaphore() -> asyncio.Semaphore:
     running loop에 묶이므로(Python 3.10+), 모듈 임포트 시점이 아닌 첫 도구
     호출 시점에 만들어도 안전하다. lazy 생성이 테스트에서 config(상한값)를
     주입하고 모듈 글로벌을 리셋하기도 쉽게 한다.
+
+    max(1, ...) 하한선: config 값이 0이나 음수면 asyncio.Semaphore(0)가 되어
+    acquire가 영원히 반환하지 않는 교착 상태가 된다. 잘못된 환경변수
+    (SOONGPT_COURSE_SCHEDULE_CONCURRENCY=0 등) 한 번에 모든 강의 조회 도구가
+    조용히 멈추는 일을 막기 위해 최소 1로 보정한다.
     """
     global _course_schedule_semaphore
     if _course_schedule_semaphore is None:
         _course_schedule_semaphore = asyncio.Semaphore(
-            get_config().course_schedule_concurrency
+            max(1, get_config().course_schedule_concurrency)
         )
     return _course_schedule_semaphore
 
