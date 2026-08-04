@@ -209,10 +209,20 @@ def test_parse_field_tags_multiline_all_years() -> None:
 
 
 def test_parse_field_tags_strips_blank_lines() -> None:
-    """빈 줄 / 선행-후행 공백 / 줄내 공백은 보존하되 빈 줄은 제거."""
-    field = "\n  ['23이후]과학·기술  \n\n['19]기초역량\n"
+    """빈 줄 / whitespace-only 줄 / 선행-후행 공백은 제거, 줄내 공백은 보존."""
+    field = "\n  ['23이후]과학·기술  \n\n   \n['19]기초역량\n"
     tags = parse_field_tags(field)
     assert tags == ["['23이후]과학·기술", "['19]기초역량"]
+
+
+def test_parse_field_tags_crlf_line_endings() -> None:
+    """CRLF(\\r\\n) 라인 엔딩 — strip()이 \\r을 제거해 \\n만일 때와 동일 결과.
+
+    rusaint/USAINT는 \\n만 보내므로 실결함은 아니나, 줄 종결자 처리가 strip()에
+    암묵 의존 중 — split/splitlines 변경 시 회귀를 이 테스트가 잡는다.
+    """
+    field = "['23이후]과학·기술\r\n['19]기초역량\r\n"
+    assert parse_field_tags(field) == ["['23이후]과학·기술", "['19]기초역량"]
 
 
 # ── parse_lectures (평탄화 + subject_key + dedup + pass-through) ───────
