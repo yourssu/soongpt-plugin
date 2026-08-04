@@ -1,6 +1,6 @@
 ---
 name: soongpt-timetable-builder
-description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 인사+로그인+프로필·수강이력 확보(get_usaint_snapshot) → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(soongpt-timetable-composer 위임) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
+description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 인사+로그인+프로필·수강이력 확보(get_usaint_snapshot) → 졸업사정표 확인 → 인터뷰(soongpt-interview 위임) → 들을 수 있는 과목 통합 조회(soongpt-available-lectures 위임) → 시간표 후보 생성(soongpt-timetable-composer 위임) → 후보 확정 후 시각화(soongpt-timetable-visualize 위임) 순으로 진행. "시간표 짜줘", "시간표 완성해줘", "이번 학기 시간표 만들어줘" 같은 막연한 요청의 진입점. 특정 단계만 원하는 요청("인터뷰만 다시 할래", "시간표 보여줘" 등)은 선행 단계 확인 없이 해당 하위 스킬로 즉시 위임.
 ---
 
 # SoongPT Timetable Builder
@@ -21,8 +21,9 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 3. 인터뷰 진행 — 위임: `soongpt-interview`
 4. 들을 수 있는 과목 통합 조회 — 위임: `soongpt-available-lectures`
 5. 시간표 후보 생성 — 위임: `soongpt-timetable-composer`
+6. 시간표 시각화 — 위임: `soongpt-timetable-visualize` (후보 확정 후 **기본 후속 단계**)
 
-이 스킬의 스코프는 1~5단계 **라우팅**까지다. 5단계는 판단 없이 `soongpt-timetable-composer`로 무조건 위임한다.
+이 스킬의 스코프는 1~6단계 **라우팅**까지다. 5단계는 판단 없이 `soongpt-timetable-composer`로 무조건 위임한다. composer에서 사용자가 후보(A/B/C)를 **확정**하면 6단계로 이어진다 — 확정된 강의 lecture dict이 같은 대화 맥락에 남아있을 때 시각화로 한눈에 보여주는 흐름이 가장 자연스럽다.
 
 ## 진입/스킵 결정 규칙표
 
@@ -37,6 +38,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 | 5. 시간표 후보 생성 | `load_timetable_candidates(year, semester)` | 후보 없음 (`_cache.source == "miss"`) → composer에 **신규 조합** 위임 | **후보 존재 (`source == "hit"`)** → composer에 **무조건 재개 위임** | **"만족" 판정은 builder가 할 수 없다**(치명②) — 후보 존재 시 composer가 10단계에서 인터뷰/강의 캐시 mismatch 판정을 한다. 위임 대상: `soongpt-timetable-composer` |
 
 `year`/`semester`는 현재 학기 기준: 1~7월="1", 8~12월="2".
+6단계(시각화)는 캐시 기반 스킵 판정 대상이 아니라 5단계 **후보 확정 시점**에 이어지는 후속 단계라 이 표에서는 다루지 않는다 (진행 절차 6 참고).
 
 ## 진행 절차
 
@@ -79,6 +81,14 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 - 후보가 있으면 `soongpt-timetable-composer`에 **무조건 재개 위임** — "만족" 여부를 builder가 판단하지 않는다. composer가 10단계에서 인터뷰/강의 캐시 `generation_params` mismatch를 판정해 "새로 짤까? 이어서 볼래?"를 사용자에게 묻는다.
 - 이 스킬은 라우팅만 한다. 후보 조합 로직, 안내 순서, 충돌 검사, 영속화는 전부 composer 문서를 따른다.
 
+### 6. 시간표 시각화 (위임: `soongpt-timetable-visualize`)
+
+- composer에서 사용자가 후보(A/B/C)를 **확정**하면, 완성된 시간표를 한눈에 보여주기 위해 `soongpt-timetable-visualize`로 위임한다. 후보 확정 직후가 **기본 후속 시점**이다.
+- **입력 맞춤 (중요)**: 시각화 입력은 `find_lectures` 반환과 동일한 **lecture dict 목록**이다. `code`/`name`/`professor`/`department`/`time_points`에 더해 **`schedule_room`**(요일·시간·강의실 문자열)이 있어야 그리드에 그릴 수 있다 — code 목록만으로는 렌더링할 수 없다.
+- 4단계와 composer가 모두 거치는 `load_lectures_cache` 결과(`schedule_room` 포함 원본 lecture dict)가 **같은 대화 맥락에 남아있으므로**, 확정 후보의 lecture dict을 추가 조회 없이 시각화로 넘길 수 있다. 맥락에 빠져 있으면 `load_lectures_cache`로 다시 확보해 넘긴다.
+- 렌더링(정적 HTML 생성·기본 브라우저 오픈·시간 충돌 빨간 테두리 강조)은 시각화 스킬이 알아서 처리한다 — builder는 lecture dict을 전달하고 위임만 한다.
+- 시각화는 "기본"이지 강제가 아니다 — 사용자가 원하지 않으면 6단계 없이 흐름을 마친다.
+
 ## 부분 요청 처리 (빠른 위임)
 
 사용자가 전체 흐름이 아니라 특정 단계만 원하면, **선행 단계 확인 없이 즉시** 해당 하위 스킬로 위임한다. 프로필/졸업사정표 같은 선행조건은 위임받은 스킬이 각자 자체 진입 절차에서 처리하므로 오케스트레이터가 중복으로 먼저 체크하지 않는다.
@@ -87,6 +97,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 |---|---|
 | "인터뷰만 다시 할래", "선호도만 다시 입력할래" | `soongpt-interview` |
 | "강의만 다시 가져와", "과목 조회만", "캐시 갱신해" | `soongpt-available-lectures` |
+| "시간표 보여줘", "그려줘", "시각화해줘", "한 눈에 보여줘" | `soongpt-timetable-visualize` |
 
 ## 재개/이탈 상태 판단
 
@@ -102,3 +113,4 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 - 이 스킬은 라우팅/오케스트레이션만 담당한다. 인터뷰 질문 내용, 강의 조회 세부 로직은 각각 `soongpt-interview`, `soongpt-available-lectures` 스킬 문서를 따른다.
 - 시간표 후보 생성 로직 자체는 이 스킬의 스코프 밖이며 `soongpt-timetable-composer` 스킬이 담당한다.
+- 시간표 시각화(렌더링)는 `soongpt-timetable-visualize` 스킬이 담당한다. builder는 확정 후보의 lecture dict을 넘길 뿐 렌더링 로직에 관여하지 않는다.
