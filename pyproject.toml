@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "soongpt-mcp contributors" },
+    { name = "soongpt-plugin contributors" },
 ]
 keywords = ["mcp", "soongsil", "rusaint", "uaint"]
 classifiers = [

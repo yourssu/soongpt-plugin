@@ -1,6 +1,6 @@
 # soongpt-plugin
 
-숭실대 USAINT(u-saint) 데이터를 Claude Code / Codex에서 가져오는 **로컬 MCP 서버**. [rusaint](https://github.com/EATSTEAK/rusaint) 라이브러리 기반.
+숭실대 USAINT(u-saint) 데이터를 Claude Code / Codex에서 다루게 해주는 **플러그인**(로컬 MCP 서버 + 시간표 스킬을 한 번에 번들). [rusaint](https://github.com/EATSTEAK/rusaint) 라이브러리 기반.
 
 Claude Code 대화창에서 "내 졸업 요건 확인해줘"라고 치면 알아서 USAINT에서 데이터를 가져와 분석해줍니다.
 
@@ -73,20 +73,17 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-**User scope**(어디서든 사용):
+**로컬 수정사항 실행/테스트**:
 
 ```bash
-claude mcp add -s user soongpt-mcp -- /절대/경로/soongpt-mcp/.venv/bin/python -m soongpt_mcp
+# venv 안에서 MCP 서버(stdio)를 직접 실행 — Claude Code 플러그인 없이도 동작 확인
+python -m soongpt_mcp
+
+# 또는 플러그인과 동일한 부트스트랩(자동 venv 생성·의존성 설치)을 재현하려면
+bash scripts/run-server.sh
 ```
 
-> venv 안의 `python` 실행파일을 절대 경로로 지정해야 rusaint/mcp 의존성이 다 보입니다.
-
-연결 확인:
-
-```bash
-claude mcp list
-# soongpt-mcp: ... - ✓ Connected
-```
+> 일반 사용자는 위 `/plugin install` 흐름으로 충분하므로 `claude mcp add`로 서버를 직접 등록할 필요가 없습니다. 플러그인 설치 전에 **기존에 `claude mcp add`로 단독 MCP 서버를 등록해 둔 분**은 앞선 안내(위 27행)대로 `claude mcp remove soongpt-mcp -s user`로 먼저 지워주세요 — 같은 이름이 여러 scope에 겹치면 충돌 경고가 뜹니다.
 
 ## 특징
 
@@ -270,14 +267,14 @@ Claude Code 대화창에서:
 ```
 [Claude Code 대화창]
        ↓ MCP 도구 호출 (stdio)
-[soongpt-mcp 서버 (Python)]
+[soongpt MCP 서버 (Python)]
        ↓ keyring에서 세션 로드
        ↓ 없음/만료 → 자동 localhost 웹 서버 + 브라우저 오픈
        ↓ 사용자 학번/비번 입력 → rusaint 인증 → 세션 JSON → keyring 저장
        ↓ rusaint 라이브러리로 USAINT 스크래핑
 [숭실대 u-saint 서버]
        ↓ 데이터 반환
-[soongpt-mcp 서버] → [Claude]이 데이터 해석/분석
+[soongpt MCP 서버] → [Claude]이 데이터 해석/분석
 ```
 
 ## 기여
