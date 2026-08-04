@@ -151,8 +151,13 @@ def group_key_for(
         if category == "전체":
             return "optional_elective_all"
         return f"optional_elective_{category}"
-    if category_type in ("major", "recognized_other_major", "graduated"):
-        return f"{category_type}_{collage}_{department}"
+    if category_type in ("major", "recognized_other_major"):
+        # major(세부전공 필터)가 주어지면 키에 포함해 같은 collage+department의
+        # 다른 major 조회가 서로 덮어쓰지 않게 한다 (critic MAJOR-2 반영).
+        base = f"{category_type}_{collage}_{department}"
+        return f"{base}_{major}" if major else base
+    if category_type == "graduated":
+        return f"graduated_{collage}_{department}"
     if category_type == "required_elective":
         return f"required_elective_{lecture_name}"
     if category_type in (
@@ -177,7 +182,15 @@ def _identifying_params(entry: LectureGroupEntry) -> tuple[str, ...]:
     """
     if entry.category_type == "optional_elective":
         return (entry.category_type, entry.params.get("category"))
-    if entry.category_type in ("major", "recognized_other_major", "graduated"):
+    if entry.category_type in ("major", "recognized_other_major"):
+        # major(세부전공 필터)까지 식별에 포함 — group_key_for와 일치.
+        return (
+            entry.category_type,
+            entry.params.get("collage"),
+            entry.params.get("department"),
+            entry.params.get("major"),
+        )
+    if entry.category_type == "graduated":
         return (
             entry.category_type,
             entry.params.get("collage"),
@@ -190,7 +203,9 @@ def _identifying_params(entry: LectureGroupEntry) -> tuple[str, ...]:
         # 무관하게 신규 fetch가 기존 chapel 그룹을 대체한다.
         return (entry.category_type,)
     if entry.category_type in ("connected_major", "united_major"):
-        return (entry.category_type, entry.params.get("major"))
+        # 프로필당 단일 값 + 고정 키(connected_major/united_major) — 식별도
+        # 고정으로 맞춰 키-식별 불일치를 없앤다 (critic MINOR-4 반영).
+        return (entry.category_type,)
     if entry.category_type in ("find_by_professor", "find_by_lecture"):
         return (entry.category_type, entry.params.get("keyword"))
     return (entry.category_type,)
@@ -210,17 +225,39 @@ def merge_lectures_groups(
     ``recognized_other_major_primary``)는 canonical 키 fetch 시 자동으로
     사라진다.
 
+    **error 그룹은 기존 성공 그룹을 대체하지 않는다** (critic MAJOR-3 반영):
+    부분 실패로 신규 fetch가 error 그룹이면, 같은 조회의 기존 성공 그룹이
+    있으면 그대로 보존하고 error 그룹은 저장하지 않는다 (실패는 예외로 이미
+    호출자에게 전달됨). 기존에 성공 그룹이 없었으면 error 그룹을 남겨
+    ``load_lectures_cache``에서 실패를 확인할 수 있게 한다.
+
     find_lectures 자동 저장이 그룹별로 독립 실행되므로, 몇 번을 fetch하든
     캐시에는 "지금까지 성공한 fetch 전부"가 남는다.
     """
-    incoming_ids = {_identifying_params(entry) for entry in new_groups.values()}
+    incoming_by_id: dict[tuple[str, ...], str] = {}
+    for key, entry in new_groups.items():
+        incoming_by_id.setdefault(_identifying_params(entry), key)
+
+    suppressed_error_keys: set[str] = set()
     merged: dict[str, LectureGroupEntry] = {}
     if existing is not None:
         for key, entry in existing.groups.items():
-            if _identifying_params(entry) in incoming_ids:
-                continue  # 이번에 새로 fetch된 조회와 동일 → 신규로 대체
+            incoming_key = incoming_by_id.get(_identifying_params(entry))
+            if incoming_key is not None:
+                incoming = new_groups[incoming_key]
+                if incoming.error is not None and entry.error is None:
+                    # 신규 error가 기존 성공을 대체하지 못하게 보존 + 신규 error 억제.
+                    merged[key] = entry
+                    suppressed_error_keys.add(incoming_key)
+                    continue
+                # 그 외: 신규 fetch가 같은 조회를 대체 → 기존은 버린다.
+                continue
             merged[key] = entry
-    merged.update(new_groups)
+
+    for key, entry in new_groups.items():
+        if key in suppressed_error_keys:
+            continue
+        merged[key] = entry
     return LecturesCache(
         year=year,
         semester=semester,

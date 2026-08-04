@@ -186,3 +186,79 @@ async def test_find_lectures_autosave_preserves_previous_groups(
         "major_IT대학_컴퓨터학부",
         "optional_elective_all",
     }
+
+
+@pytest.mark.asyncio
+async def test_find_lectures_major_param_distinct_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """category_type=major에서 major(세부전공) 파라미터가 다르면 별도 그룹으로
+    저장돼 서로 덮어쓰지 않는다 (critic MAJOR-2)."""
+    monkeypatch.setattr(server, "_run_with_session", _fake_success_run)
+
+    await server.find_lectures(
+        2026, "1", "major", collage="IT대학", department="컴퓨터학부"
+    )
+    await server.find_lectures(
+        2026, "1", "major", collage="IT대학", department="컴퓨터학부",
+        major="컴퓨터전공",
+    )
+
+    cache, _ = _loaded(2026, "1")
+    assert cache is not None
+    assert set(cache.groups) == {
+        "major_IT대학_컴퓨터학부",
+        "major_IT대학_컴퓨터학부_컴퓨터전공",
+    }
+
+
+@pytest.mark.asyncio
+async def test_find_lectures_failure_preserves_existing_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실패 재fetch가 기존 성공 그룹을 대체하지 않는다 (critic MAJOR-3)."""
+    monkeypatch.setattr(server, "_run_with_session", _fake_success_run)
+    await server.find_lectures(
+        2026, "1", "major", collage="IT대학", department="컴퓨터학부"
+    )
+
+    monkeypatch.setattr(server, "_run_with_session", _fake_raise_run)
+    with pytest.raises(RusaintInternalError):
+        await server.find_lectures(
+            2026, "1", "major", collage="IT대학", department="컴퓨터학부"
+        )
+
+    cache, _ = _loaded(2026, "1")
+    assert cache is not None
+    group = cache.groups["major_IT대학_컴퓨터학부"]
+    assert group.error is None  # 기존 성공 데이터가 error로 대체되지 않음
+    assert group.lectures == _FAKE_RESULT["lectures"]
+
+
+@pytest.mark.asyncio
+async def test_parallel_find_lectures_saves_all_groups(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """병렬 find_lectures 후 모든 그룹이 캐시에 남는다 (동시 저장 정합성).
+
+    각 find_lectures가 세마포어 밖에서 동기(sync)로 저장하므로 lost update 없이
+    전부 병합된다는 회귀 방지 테스트.
+    """
+    import asyncio
+
+    async def fake_run(func: Any) -> dict[str, Any]:
+        return {"lectures": [{"code": "X"}], "count": 1, "fetchTime": "0.1s"}
+
+    monkeypatch.setattr(server, "_run_with_session", fake_run)
+    await asyncio.gather(
+        *[
+            server.find_lectures(
+                2026, "1", "required_elective", lecture_name=f"L{i}"
+            )
+            for i in range(6)
+        ]
+    )
+
+    cache, _ = _loaded(2026, "1")
+    assert cache is not None
+    assert set(cache.groups) == {f"required_elective_L{i}" for i in range(6)}

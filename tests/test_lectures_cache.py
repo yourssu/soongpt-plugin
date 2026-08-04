@@ -189,6 +189,12 @@ GROUP_KEY_CASES = [
         id="major_collage_department",
     ),
     pytest.param(
+        "major",
+        {"collage": "IT대학", "department": "컴퓨터학부", "major": "컴퓨터전공"},
+        "major_IT대학_컴퓨터학부_컴퓨터전공",
+        id="major_with_major_param",
+    ),
+    pytest.param(
         "recognized_other_major",
         {"collage": "IT대학", "department": "컴퓨터학부"},
         "recognized_other_major_IT대학_컴퓨터학부",
@@ -344,6 +350,86 @@ def test_merge_with_no_existing_creates_cache() -> None:
     assert merged.year == 2026
     assert merged.semester == "1"
     assert "chapel" in merged.groups
+
+
+def _error_entry(
+    category_type: str, params: dict[str, str | None], message: str
+) -> LectureGroupEntry:
+    return LectureGroupEntry(
+        category_type=category_type,
+        params=params,
+        lectures=[],
+        count=0,
+        error=message,
+    )
+
+
+def test_merge_error_group_does_not_replace_existing_success() -> None:
+    """부분 실패(error 그룹)가 기존 성공 그룹을 대체하지 않는다 (critic MAJOR-3)."""
+    existing = LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "major_IT대학_컴퓨터학부": _entry(
+                "major",
+                {"collage": "IT대학", "department": "컴퓨터학부", "major": None},
+                "CS",
+            )
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+    error_entry = _error_entry(
+        "major",
+        {"collage": "IT대학", "department": "컴퓨터학부", "major": None},
+        "일시적 오류",
+    )
+    merged = merge_lectures_groups(
+        existing, 2026, "1", {"major_IT대학_컴퓨터학부": error_entry}
+    )
+    # 기존 성공 데이터 보존 + error 그룹은 저장되지 않음.
+    group = merged.groups["major_IT대학_컴퓨터학부"]
+    assert group.error is None
+    assert group.lectures[0]["code"] == "CS"
+    assert len(merged.groups) == 1
+
+
+def test_merge_error_group_recorded_when_no_existing_success() -> None:
+    """기존 성공 그룹이 없으면 error 그룹을 남겨 load에서 실패를 확인 가능."""
+    error_entry = _error_entry("chapel", {"lecture_name": "비전채플"}, "조회 실패")
+    merged = merge_lectures_groups(None, 2026, "1", {"chapel": error_entry})
+    assert merged.groups["chapel"].error == "조회 실패"
+    assert merged.groups["chapel"].lectures == []
+
+
+def test_merge_success_replaces_existing_error() -> None:
+    """재조회 성공은 기존 error 그룹을 대체한다."""
+    existing = LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "major_IT대학_컴퓨터학부": _error_entry(
+                "major",
+                {"collage": "IT대학", "department": "컴퓨터학부", "major": None},
+                "이전 실패",
+            )
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+    merged = merge_lectures_groups(
+        existing,
+        2026,
+        "1",
+        {
+            "major_IT대학_컴퓨터학부": _entry(
+                "major",
+                {"collage": "IT대학", "department": "컴퓨터학부", "major": None},
+                "NEW",
+            )
+        },
+    )
+    group = merged.groups["major_IT대학_컴퓨터학부"]
+    assert group.error is None
+    assert group.lectures[0]["code"] == "NEW"
 
 
 def test_merge_chapel_replaces_regardless_of_lecture_name() -> None:

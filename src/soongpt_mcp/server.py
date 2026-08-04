@@ -380,10 +380,11 @@ async def find_lectures(
     - "education" / "cyber": 추가 파라미터 없음
 
     save_to_cache: 기본 True — fetch 결과를 서버 측에서 캐시에 즉시 그룹 저장한다
-    (fetch 시점 = 저장 시점, SPR-75). 응답의 lectures를 다시 save_lectures_cache로
-    넘길 필요가 없다. 확인용 조회(find_by_lecture/find_by_professor, include_details)
-    는 저장을 제외한다. fetch 실패 시 캐시에 error 그룹을 기록하고 예외를 그대로
-    던진다. 응답의 `_cache.group_key`/`saved`로 저장 여부를 확인한다.
+    (fetch 시점 = 저장 시점, SPR-75). 응답의 lectures를 별도 저장 도구로 넘길
+    필요가 없다. 확인용 조회(find_by_lecture/find_by_professor, include_details)
+    는 저장을 제외한다. fetch 실패 시 예외를 그대로 던지며, 같은 조회의 기존
+    성공 그룹이 없었으면 error 그룹을 캐시에 남긴다. 응답의
+    `_cache.group_key`/`saved`로 저장 여부를 확인한다.
 
     반환: { lectures: [...], count, fetchTime, includeDetails, _cache }
     include_details=True 시 강의계획서(syllabus)와 상세정보(detail) 포함 (느림).

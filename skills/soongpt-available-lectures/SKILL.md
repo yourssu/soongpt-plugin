@@ -57,7 +57,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 - **취합 → save_lectures_cache 호출이 없다.** `save_lectures_cache` 도구는 제거됨. fetch가 끝나면 그 그룹은 이미 캐시에 들어 있다.
 - **그룹 키도 서버가 자동 생성**한다 (아래 각 카테고리의 `groups["..."]` 표기는 자동 생성될 키 안내 — 스킬이 직접 키를 정하지 않는다).
 - **응답의 lectures 상세는 컨텍스트에 유지하지 않는다.** 이미 캐시에 저장됐으므로 `count`와 `_cache`(group_key/saved)만 보고 다음 fetch로 넘어간다. 특히 교양선택 "전체"(약 337강의) 응답은 **절대 요약/재조립하거나 save로 다시 넘기지 않는다** — 대화에는 `count` 수준만 남긴다.
-- **실패 카테고리는 캐시에 error 그룹이 기록되고 예외가 그대로 온다.** `_cache.saved`가 False거나 예외가 나면 정상 진행하고, 나중에 `load_lectures_cache`로 실패 그룹(`error` 필드)을 확인할 수 있다.
+- **실패 카테고리는 예외가 그대로 온다** (연계/융합처럼 한쪽 실패가 정상인 경우 포함). 예외 후에는 `load_lectures_cache`로 해당 그룹의 `error` 필드를 확인해 재조회 여부를 판단한다. (기존 성공 그룹이 있으면 error 그룹으로 대체되지 않으니 데이터는 보존된다. `_cache.saved=False`는 "확인용 조회라 저장을 건너뜀"의 경우다.)
 - **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다.
 
 #### 3-A. 전공 계열 (2~6회 병렬)
