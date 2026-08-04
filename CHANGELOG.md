@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- 채플 grade별 분기 — 1학년 소그룹채플 정책 추가. fetch를 grade 기반 단일 호출(1학년→소그룹채플, 2학년+→비전채플)로 바꾸고, composer ④ 채플과 interview 채플 질문을 grade로 분기. 2학년+ 비전채플 로직은 기존 그대로 보존 (#34)
+
+### Fixed
+
+- `constants.py` `CHAPEL_CODES` 인라인 주석 정정 — `21501015`가 "채플"이 아니라 "비전채플" (#34)
+
 ## [0.1.2] - 2026-08-01
 
 ### Added
