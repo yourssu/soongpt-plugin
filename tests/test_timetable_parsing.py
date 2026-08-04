@@ -636,10 +636,11 @@ async def test_parse_lectures_cache_stale_returns_data(isolated_root: Path) -> N
 async def test_parse_lectures_cache_miss_guidance_fill_cache(
     isolated_root: Path,
 ) -> None:
-    """miss guidance는 캐시 채우기 안내."""
+    """miss guidance는 캐시 채우기 안내 — find_lectures 자동 저장(SPR-75) 방식."""
     result = await server.parse_lectures_cache(2026, "1")
     assert result["_cache"]["source"] == "miss"
-    assert "save_lectures_cache" in result["guidance"]
+    assert "find_lectures" in result["guidance"]
+    assert "save_lectures_cache" not in result["guidance"]
 
 
 @pytest.mark.asyncio

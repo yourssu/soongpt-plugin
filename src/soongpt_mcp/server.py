@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -38,14 +39,12 @@ from .interview import (
 )
 from .lectures_cache import (
     LectureGroupEntry,
-    LecturesCache,
+    group_key_for,
     is_lectures_cache_fresh,
+    save_lectures_group,
 )
 from .lectures_cache import (
     load_lectures_cache as _load_lectures_cache_file,
-)
-from .lectures_cache import (
-    save_lectures_cache as _save_lectures_cache_file,
 )
 from .profile import (
     SUBMISSION_FIELDS,
@@ -82,6 +81,8 @@ from .timetable_parsing import (
     find_conflicts,
     parse_lectures,
 )
+
+logger = logging.getLogger(__name__)
 
 mcp = MCPServer("soongpt-mcp")
 
@@ -314,6 +315,41 @@ async def get_graduation_status(force_refresh: bool = False) -> dict:
     }}
 
 
+# SPR-75: 캐시 오염 방지 — 확인용 조회는 save_to_cache=True여도 저장 제외.
+# find_by_lecture/find_by_professor(특정 강의·교수 확인)과 include_details=True
+# (강의계획서 상세)는 범용 fetch가 아니므로 캐시에 넣지 않는다.
+_CONFIRM_ONLY_CATEGORY_TYPES = {"find_by_lecture", "find_by_professor"}
+
+
+def _should_save_to_cache(
+    save_to_cache: bool, category_type: str, include_details: bool
+) -> bool:
+    if not save_to_cache:
+        return False
+    if include_details:
+        return False
+    return category_type not in _CONFIRM_ONLY_CATEGORY_TYPES
+
+
+def _build_lecture_group_params(
+    collage: str | None,
+    department: str | None,
+    major: str | None,
+    lecture_name: str | None,
+    category: str | None,
+    keyword: str | None,
+) -> dict[str, Any]:
+    """find_lectures 요청 파라미터 스냅샷. LectureGroupEntry.params에 담는다."""
+    return {
+        "collage": collage,
+        "department": department,
+        "major": major,
+        "lecture_name": lecture_name,
+        "category": category,
+        "keyword": keyword,
+    }
+
+
 @mcp.tool()
 async def find_lectures(
     year: int,
@@ -326,6 +362,7 @@ async def find_lectures(
     category: str | None = None,
     keyword: str | None = None,
     include_details: bool = False,
+    save_to_cache: bool = True,
 ) -> dict:
     """숭실대 USAINT 강의시간표에서 특정 학기/카테고리 강의를 검색합니다.
 
@@ -336,12 +373,19 @@ async def find_lectures(
     - "graduated": collage, department 필수
     - "required_elective" / "chapel": lecture_name 필수
     - "optional_elective": category 필수 (교양 분야명 또는 "전체" — "전체"는 전 학번
-      분야를 한 번에 조회하는 특수값. 분야별 분산 호출 대신 "전체" 1회로 충분 — SPR-68)
+      분야를 한 번에 조회하는 특수값. 분야별 분산 호출 대신 "전체" 1회로 충분 — SPR-68,
+      캐시에는 단일 그룹 "optional_elective_all"로 저장)
     - "connected_major" / "united_major": major 필수
     - "find_by_professor" / "find_by_lecture": keyword 필수
     - "education" / "cyber": 추가 파라미터 없음
 
-    반환: { lectures: [...], count, fetchTime, includeDetails }
+    save_to_cache: 기본 True — fetch 결과를 서버 측에서 캐시에 즉시 그룹 저장한다
+    (fetch 시점 = 저장 시점, SPR-75). 응답의 lectures를 다시 save_lectures_cache로
+    넘길 필요가 없다. 확인용 조회(find_by_lecture/find_by_professor, include_details)
+    는 저장을 제외한다. fetch 실패 시 캐시에 error 그룹을 기록하고 예외를 그대로
+    던진다. 응답의 `_cache.group_key`/`saved`로 저장 여부를 확인한다.
+
+    반환: { lectures: [...], count, fetchTime, includeDetails, _cache }
     include_details=True 시 강의계획서(syllabus)와 상세정보(detail) 포함 (느림).
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
@@ -364,9 +408,74 @@ async def find_lectures(
             include_details=include_details,
         )
 
-    async with _get_course_schedule_semaphore():
-        result = await _run_with_session(call)
-    return _jsonify(result)
+    should_save = _should_save_to_cache(save_to_cache, category_type, include_details)
+    params = _build_lecture_group_params(
+        collage, department, major, lecture_name, category, keyword
+    )
+    try:
+        key = group_key_for(
+            category_type,
+            collage=collage,
+            department=department,
+            major=major,
+            lecture_name=lecture_name,
+            category=category,
+            keyword=keyword,
+        )
+    except ValueError:
+        # 미지원 category_type은 키 생성 자체가 실패 — 저장 없이 그대로 진행.
+        key = None
+
+    try:
+        async with _get_course_schedule_semaphore():
+            result = await _run_with_session(call)
+    except Exception as exc:
+        # 부분 실패 관리 (SPR-75): fetch 실패 시 error 그룹을 캐시에 기록하고
+        # 예외는 그대로 재전파 — 호출자가 예외를 보고 정상 진행할 수 있다
+        # (연계/융합전공처럼 한쪽은 예외가 정상인 카테고리).
+        if should_save and key is not None:
+            try:
+                error_entry = LectureGroupEntry(
+                    category_type=category_type,
+                    params=params,
+                    lectures=[],
+                    count=0,
+                    error=str(exc),
+                )
+                save_lectures_group(year, semester, key, error_entry)
+            except Exception:
+                logger.warning(
+                    "find_lectures 오류 그룹 기록 실패 (group=%s)", key, exc_info=True
+                )
+        raise
+
+    saved = False
+    if should_save and key is not None:
+        try:
+            entry = LectureGroupEntry(
+                category_type=category_type,
+                params=params,
+                lectures=result["lectures"],
+                count=result.get("count", len(result["lectures"])),
+                error=None,
+            )
+            save_lectures_group(year, semester, key, entry)
+            saved = True
+        except Exception:
+            # 저장 실패는 fetch 결과를 흘려보내지 않는다 — 로그만 남기고 응답은 그대로.
+            logger.warning(
+                "find_lectures 자동 저장 실패 (group=%s): ",
+                key,
+                exc_info=True,
+            )
+    return {
+        **_jsonify(result),
+        "_cache": {
+            "group_key": key,
+            "saved": saved,
+            "cached_at": datetime.now(timezone.utc).isoformat() if saved else None,
+        },
+    }
 
 
 @mcp.tool()
@@ -469,47 +578,6 @@ async def load_lectures_cache(year: int, semester: str) -> dict:
 
 
 @mcp.tool()
-async def save_lectures_cache(year: int, semester: str, groups: dict) -> dict:
-    """강의 캐시 저장. 스킬이 find_lectures N회 결과를 group_key별로 취합해 전달.
-
-    groups 형태 (각 값은 LectureGroupEntry 호환 dict):
-    {
-      "major_primary": {"category_type": "major", "params": {...}, "lectures": [...], "count": N, "error": null},
-      "optional_elective_all": {"category_type": "optional_elective", "params": {"category": "전체"}, ...},
-      ...
-    }
-    교양선택은 "전체" 1회 호출 결과를 단일 키 "optional_elective_all"로 저장한다
-    (SPR-68 — 옛 "optional_elective_<분야명>" 분산 키는 더 이상 사용하지 않음).
-
-    학기(semester): "1" | "2" | "summer" | "winter"
-
-    반환: { year, semester, count, saved_at, path }
-    """
-    parsed: dict[str, LectureGroupEntry] = {}
-    for key, entry in groups.items():
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"groups[{key!r}]는 dict여야 함: {type(entry).__name__}"
-            )
-        parsed[key] = LectureGroupEntry.model_validate(entry)
-
-    cache = LecturesCache(
-        year=year,
-        semester=semester,
-        groups=parsed,
-        cached_at=datetime.now(timezone.utc),
-    )
-    target = _save_lectures_cache_file(cache)
-    return {
-        "year": cache.year,
-        "semester": cache.semester,
-        "count": len(cache.groups),
-        "saved_at": cache.cached_at.isoformat(),
-        "path": str(target),
-    }
-
-
-@mcp.tool()
 async def parse_lectures_cache(year: int, semester: str) -> dict:
     """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
 
@@ -545,8 +613,9 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
             "stats": {"total": 0, "parsed_ok": 0, "uncertain": 0, "empty": 0},
             "_cache": {"source": "miss", "cached_at": None, "age_days": None},
             "guidance": (
-                "저장된 강의 캐시가 없습니다. save_lectures_cache로 먼저 채워주세요 "
-                "(soongpt-available-lectures 스킬이 find_lectures 결과를 취합해 저장)."
+                "저장된 강의 캐시가 없습니다. find_lectures로 채워주세요 "
+                "(soongpt-available-lectures 스킬이 find_lectures를 호출하면 "
+                "서버가 자동으로 캐시에 저장합니다)."
             ),
         }
 
@@ -695,7 +764,7 @@ async def save_timetable_candidate(
         raise ValueError(
             f"후보 lecture_codes 중 강의 캐시에 없는 code가 있습니다: "
             f"{', '.join(missing)}. parse_lectures_cache의 parsed[].code를 "
-            f"그대로 사용하세요 (save_lectures_cache로 먼저 캐시를 채워야 합니다)."
+            f"그대로 사용하세요 (soongpt-available-lectures 스킬로 캐시를 먼저 채우세요)."
         )
 
     existing = load_timetable_cache(year, semester)
