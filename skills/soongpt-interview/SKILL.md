@@ -20,7 +20,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 ### 1. 프로필/수강이력 확인
 - `get_user_profile()` 호출
-- 반환 `profile`이 `null`이거나 핵심 필드가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보)
+- 반환 `profile`이 `null`이거나 **핵심 필드(`department`/`college`/`grade`/`entered_year` 중 하나라도)**가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보). **`grade`는 3-B-1 채플 분기에 필수**이므로 반드시 채운다 — 비면 `set_user_profile("grade", ...)`로 입력받는다.
 - 그래도 프로필이 비어있으면 사용자에게 안내 후 중단
 
 ### 2. 졸업사정표 확인
