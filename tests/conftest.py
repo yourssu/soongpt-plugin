@@ -5,12 +5,26 @@ import asyncio
 import secrets
 import threading
 import urllib.request
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 
 import pytest
 
 from soongpt_mcp import web_login
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plugin_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """모든 테스트에서 캐시(강의/스냅샷/후보/인터뷰)를 임시 디렉토리에 격리.
+
+    find_lectures 자동 저장(SPR-75)처럼 테스트가 캐시 파일을 직접 쓰는 도구를
+    호출하므로, 실사용자 캐시(~/.local/share/soongpt-mcp) 오염을 막는다.
+    테스트별 tmp_path는 isolated_root 등 개별 픽스처가 다시 덮어쓸 수 있다.
+    """
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
 
 
 def _wait_for_server(host: str, port: int, timeout: float = 2.0) -> None:
