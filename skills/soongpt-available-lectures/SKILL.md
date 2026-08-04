@@ -42,6 +42,14 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 스킬이 직접 `find_lectures`와 `list_optional_elective_categories`, `list_required_electives`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행.
 
+#### 3-0. find_lectures 묶음 크기 (~4개, 중요)
+
+`find_lectures`를 **4개 초과**로 쏴야 하는 구간(주로 **3-B 교양 전체**; 3-A·3-C는 한 묶음에 다 들어오므로 그냥 한 번에 병렬)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
+
+- **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
+- **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
+- **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_optional_elective_categories`/`list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
+
 #### 3-A. 전공 계열 (2~6회 병렬)
 
 - **주전공** (필수 1회):
@@ -104,7 +112,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
    - `profile.entered_year >= 2023` → `"[‘23이후]"` 분야만 유지
    - `profile.entered_year < 2023` → `"[‘23이전]"` 분야만 유지
    - 입학연도 불분명하거나 다른 학번 태그가 있으면 일단 전부 유지 (안전)
-3. 필터링된 각 분야별로 `find_lectures` 병렬 호출:
+3. 필터링된 각 분야별로 `find_lectures` 병렬 호출 (약 4개씩 묶음 — 3-0 묶음 규칙):
    ```
    find_lectures(year, semester, category_type="optional_elective",
                  category="<분야명>")
@@ -117,7 +125,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
    ```
    list_required_electives(year, semester)
    ```
-2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출:
+2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출 (약 4개씩 묶음 — 3-0 묶음 규칙, 이 단계가 호출 수가 가장 많음):
    ```
    find_lectures(year, semester, category_type="required_elective",
                  lecture_name="<과목명>")
