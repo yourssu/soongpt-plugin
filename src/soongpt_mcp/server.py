@@ -1,12 +1,14 @@
 """MCPServer exposing the Soongsil uSaint snapshot tool."""
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
+from .config import get_config
 from .department_map import (
     DepartmentMap,
     is_department_map_fresh,
@@ -93,6 +95,42 @@ def _jsonify(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_jsonify(x) for x in obj]
     return obj
+
+
+# SPR-67: 강의시간표(course_schedule) 계열 도구의 동시성 상한 세마포어.
+#
+# USAINT WebDynpro 포털은 동일 SSO 세션의 동시 요청을 서버 쪽에서 순차 처리한다
+# (세션 객체를 N개 만들어도 포털 입장에선 같은 사용자 → 직렬화). 그래서
+# find_lectures 18개를 한 번에 병렬로 쏘면 응답이 2.3초 → 3.3초 → … → 30.4초로
+# 계단형 도착하고, 마지막 것은 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험에
+# 노출된다. 강의시간표 계열 도구가 이 세마포어를 공유해 동시 송출을 상한으로
+# 묶으면 각 호출이 안전한 시간(~8초) 내에 끝나 위험이 사라진다.
+#
+# **목표는 "빠르게"가 아니라 "안전하게"** — 총 조회 시간은 포털 직렬화 때문에
+# 비슷하지만 타임아웃/에러/세션끊김 방지가 실익이다.
+#
+# 스코프: find_lectures·list_required_electives·list_optional_elective_categories가
+# 공유 (soongpt-available-lectures 스킬이 한 메시지에 이 셋을 섞어 병렬로 쏘므로,
+# 도구별 세마포어를 두면 합산 12(=4×3)개가 동시에 쏴 의도가 무의미해진다).
+# get_usaint_snapshot·get_graduation_status·refresh_user_profile·load_department_map은
+# 이 세마포어를 타지 않는다 (강의시간표 전용).
+_course_schedule_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_course_schedule_semaphore() -> asyncio.Semaphore:
+    """강의시간표 계열 도구가 공유하는 동시성 상한 세마포어 (lazy 생성).
+
+    asyncio.Semaphore는 생성 시점이 아니라 await(acquire/release) 시점의
+    running loop에 묶이므로(Python 3.10+), 모듈 임포트 시점이 아닌 첫 도구
+    호출 시점에 만들어도 안전하다. lazy 생성이 테스트에서 config(상한값)를
+    주입하고 모듈 글로벌을 리셋하기도 쉽게 한다.
+    """
+    global _course_schedule_semaphore
+    if _course_schedule_semaphore is None:
+        _course_schedule_semaphore = asyncio.Semaphore(
+            get_config().course_schedule_concurrency
+        )
+    return _course_schedule_semaphore
 
 
 async def _run_with_session(
@@ -320,7 +358,8 @@ async def find_lectures(
             include_details=include_details,
         )
 
-    result = await _run_with_session(call)
+    async with _get_course_schedule_semaphore():
+        result = await _run_with_session(call)
     return _jsonify(result)
 
 
@@ -347,7 +386,8 @@ async def list_optional_elective_categories(year: int, semester: str) -> dict:
             session_json, year=year, semester=semester
         )
 
-    result = await _run_with_session(call)
+    async with _get_course_schedule_semaphore():
+        result = await _run_with_session(call)
     return _jsonify(result)
 
 
@@ -376,7 +416,8 @@ async def list_required_electives(year: int, semester: str) -> dict:
             session_json, year=year, semester=semester
         )
 
-    result = await _run_with_session(call)
+    async with _get_course_schedule_semaphore():
+        result = await _run_with_session(call)
     return _jsonify(result)
 
 
