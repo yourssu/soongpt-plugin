@@ -37,9 +37,9 @@ def _sample_cache(year: int = 2026, semester: str = "1") -> LecturesCache:
                 count=1,
                 error=None,
             ),
-            "optional_elective_[‘23이후]과학·기술": LectureGroupEntry(
+            "optional_elective_all": LectureGroupEntry(
                 category_type="optional_elective",
-                params={"category": "[‘23이후]과학·기술"},
+                params={"category": "전체"},
                 lectures=[],
                 count=0,
                 error=None,

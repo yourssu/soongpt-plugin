@@ -25,7 +25,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   - `college` (단과대)
   - `department` (주전공 학과)
   - `grade` (학년)
-  - `entered_year` (입학연도 — 교양 분야 학번 태그 필터링에 필수)
+  - `entered_year` (입학연도 — 교양선택 학번 분야 판별에 필수. fetch 단계가 아닌 downstream composer에서 `field_tags`와 매칭)
 - `set_user_profile`은 사용자가 직접 값을 입력해야 하는 경우에만 사용한다 (자동 온보딩 수단 아님).
 
 ### 2. 캐시 확인
@@ -40,7 +40,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 ### 3. 카테고리 세트 판단 + 병렬 fetch
 
-스킬이 직접 `find_lectures`와 `list_optional_elective_categories`, `list_required_electives`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행.
+스킬이 직접 `find_lectures`와 `list_required_electives`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행. (교양선택은 "전체" 1회 호출이라 `list_optional_elective_categories`를 fetch에 쓰지 않음 — 3-B-1)
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
@@ -94,22 +94,26 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 #### 3-B. 교양 전체 (선택 분야 + 필수 과목명 열거)
 
-##### 3-B-1. 교양선택 전체 분야 (10~15회 병렬)
+##### 3-B-1. 교양선택 전체 (1회)
 
-1. 분야 목록 조회:
-   ```
-   list_optional_elective_categories(year, semester)
-   ```
-2. 입학연도 기준 분야 필터링:
-   - `profile.entered_year >= 2023` → `"[‘23이후]"` 분야만 유지
-   - `profile.entered_year < 2023` → `"[‘23이전]"` 분야만 유지
-   - 입학연도 불분명하거나 다른 학번 태그가 있으면 일단 전부 유지 (안전)
-3. 필터링된 각 분야별로 `find_lectures` 병렬 호출:
-   ```
-   find_lectures(year, semester, category_type="optional_elective",
-                 category="<분야명>")
-   ```
-   → `groups["optional_elective_<분야명>"]`에 저장
+교양선택은 학번별 분야로 쪼개 N회 부르지 않고 **"전체" 1회 호출**로 끝낸다. 실측
+결과 한 강의의 `field`에 전 학번 분야가 줄바꿈(`\n`)으로 몰아있어, 어차피 같은 강의가
+여러 분야에 중복 속한다. 분야별 분산 호출(5~25회)보다 "전체" 1회가 더 완전·빠르다
+(fetchTime ~1.4초, 약 337강의 + 전 학번 분야 태그). **학번 분야 판별은 downstream
+(composer)으로 이동** — fetch 단계에서는 학번 필터링을 하지 않는다.
+
+```
+find_lectures(year, semester, category_type="optional_elective",
+              category="전체")
+```
+→ `groups["optional_elective_all"]`에 저장 (단일 그룹)
+
+- `list_optional_elective_categories`는 이 흐름에서 **호출하지 않는다** (도구 자체는
+  분야 목록 안내용으로 보존). 학번 분야 매칭은 composer가 `field_tags`(`field`를
+  줄바꿈으로 분해한 태그 줄 리스트)와 `profile.entered_year`로 처리한다.
+- 응답이 크지만(약 219KB/337강의) `save_lectures_cache`로 파일에 저장하는 기존 패턴
+  그대로 — LLM이 매번 219KB를 읽는 구조가 아니다. 컨텍스트 절약은 composer가
+  `parse_lectures_cache` 결과를 학번 매칭으로 추려 올리는 방식으로 처리(→ composer 스킬).
 
 ##### 3-B-2. 교양필수 전체 과목명 (필수)
 
@@ -207,10 +211,10 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
     "count": 0,
     "error": "WebDynpro: Cannot find ... option in UNMA (연계 이수 시 융합 쪽은 예외 — 정상 무시)"
   },
-  "optional_elective_[‘23이후]과학·기술": {
+  "optional_elective_all": {
     "category_type": "optional_elective",
-    "params": {"category": "[‘23이후]과학·기술"},
-    "lectures": [...],
+    "params": {"category": "전체"},
+    "lectures": [...],  # 전 학번 분야 태그(멀티라인 field)가 한 번에 포함
     "count": M,
     "error": null
   },
@@ -261,7 +265,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 사용자에게:
 - 총 강의 수 (모든 groups의 count 합)
-- 카테고리별 count (예: "주전공 45건, 타전공인정 12건, 교양선택 12분야 187건, 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
+- 카테고리별 count (예: "주전공 45건, 타전공인정 12건, 교양선택 337건(전 학번 분야 포함), 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
 - 실패한 카테고리 있으면 표시
 
 ### 5. 다음 단계 안내
@@ -275,7 +279,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 |---|---|
 | `college` 비어있음 | "주전공 학과의 단과대가 어디야? (예: IT대학, 인문대학)" → `set_user_profile("college", ...)` |
 | `department` 비어있음 | `get_usaint_snapshot()` 호출로 USAINT 학적정보에서 재확보 유도 |
-| `entered_year` 비어있음 | "입학연도 알려줘 (교양 분야 필터링에 필요)" → `set_user_profile("entered_year", ...)` |
+| `entered_year` 비어있음 | "입학연도 알려줘 (교양선택 분야 판별에 필요)" → `set_user_profile("entered_year", ...)` |
 | `double_major`/`minor` 있고 단과대 모름 | `load_department_map(year)` → `mapping[학과명]` 역조회. 키 없으면 사용자에게 "복수/부전공 학과 {X}의 단과대가 어디야?" 질문 |
 
 ## 캐시 무효화
@@ -295,4 +299,4 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 - **교양필수**: `list_required_electives`가 반환한 과목명 전체를 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`로 각각 조회. 연도 필터링 없음 (optional_elective와 달리 과목명에 학번 태그 없음)
 - **교양필수 그룹 키 재사용**: `groups["required_elective_<과목명>"]`의 `<과목명>`은 `list_required_electives`가 반환한 **원본 문자열을 그대로** 써야 한다 (대괄호 `[SW와AI]`, 괄호 `(...)`, `&` 등 특수문자 포함). 후속 소비자가 키를 재구성할 때는 캐시의 groups 키를 그대로 조회하거나, 해당 그룹의 `params.lecture_name`(원본 과목명)으로 역조회하라.
 - **인터뷰 결과 소비**: `subject_preferences`에서 필수 과목/관심 분야 추출해 우선 순위 반영 — **이 이슈에서는 보류**, 후속 PR
-- 스킬은 `find_lectures`, `list_optional_elective_categories`, `list_required_electives` MCP 도구만 소비. 오케스트레이션은 스킬(LLM)이 담당
+- 스킬은 `find_lectures`, `list_required_electives` MCP 도구를 소비. `list_optional_elective_categories`는 분야 목록 안내 용도로만 쓰고 3-B-1의 "전체" 1회 호출 흐름에서는 호출하지 않는다. 오케스트레이션은 스킬(LLM)이 담당

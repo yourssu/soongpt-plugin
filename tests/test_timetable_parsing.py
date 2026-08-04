@@ -20,6 +20,7 @@ from soongpt_mcp.timetable_parsing import (
     extract_credits,
     find_conflicts,
     has_time_conflict,
+    parse_field_tags,
     parse_lectures,
     parse_schedule_room,
 )
@@ -174,6 +175,46 @@ def test_extract_credits_missing() -> None:
     assert extract_credits("학점없음") is None
 
 
+# ── parse_field_tags (교양선택 멀티라인 field 분해) ─────────────────────
+
+
+def test_parse_field_tags_none_empty() -> None:
+    """None/빈 문자열 → 빈 리스트."""
+    assert parse_field_tags(None) == []
+    assert parse_field_tags("") == []
+
+
+def test_parse_field_tags_single_line() -> None:
+    """단일 줄 field(전공의 '[4차]') → 1요소."""
+    assert parse_field_tags("[4차]") == ["[4차]"]
+
+
+def test_parse_field_tags_multiline_all_years() -> None:
+    """교양선택 '전체' 조회의 멀티라인 field — 전 학번 분야가 줄바꿈으로 연결.
+
+    이슈 실측 예시: (외국인을위한)한류와대중문화의이해 의 field.
+    각 줄은 '[학번태그]분야명' 형태. 분해만 하고 학번 매칭은 LLM 영역.
+    """
+    field = (
+        "['23이후]문화·예술\n"
+        "['20,'21~'22]의사소통/글로벌,기초역량-한국어의사소통\n"
+        "['19]기초역량-한국어의사소통과국제어문\n"
+        "['16-'18]기초역량(한국어의사소통-읽기와쓰기)\n"
+        "['15이전]창의성과의사소통능력(핵심"
+    )
+    tags = parse_field_tags(field)
+    assert len(tags) == 5
+    assert tags[0] == "['23이후]문화·예술"
+    assert tags[-1] == "['15이전]창의성과의사소통능력(핵심"
+
+
+def test_parse_field_tags_strips_blank_lines() -> None:
+    """빈 줄 / 선행-후행 공백 / 줄내 공백은 보존하되 빈 줄은 제거."""
+    field = "\n  ['23이후]과학·기술  \n\n['19]기초역량\n"
+    tags = parse_field_tags(field)
+    assert tags == ["['23이후]과학·기술", "['19]기초역량"]
+
+
 # ── parse_lectures (평탄화 + subject_key + dedup + pass-through) ───────
 
 
@@ -280,6 +321,7 @@ def test_pass_through_llm_inputs() -> None:
     p = parsed[0]
     assert p.target == "컴퓨터학부 2학년 이상"
     assert p.field == "[4차]"
+    assert p.field_tags == ["[4차]"]  # 단일 줄 field → 1요소 분해
     assert p.professor == "박은영"
     assert p.division == "전공필수"
     assert p.department == "컴퓨터학부"
@@ -322,11 +364,41 @@ def test_pass_through_missing_fields_default_none() -> None:
     )
     assert parsed[0].target is None
     assert parsed[0].field is None
+    assert parsed[0].field_tags == []  # field 없으면 빈 리스트
     assert parsed[0].professor is None
     assert parsed[0].division is None
     assert parsed[0].department is None
     assert parsed[0].category is None
     assert parsed[0].sub_category is None
+
+
+def test_parse_lectures_multiline_field_tags_for_optional_elective() -> None:
+    """교양선택 '전체' 조회: 멀티라인 field → field_tags 로 줄 단위 정규화.
+
+    field raw는 줄바꿈 그대로 보존(LLM fallback)하고, field_tags는 분해된 리스트.
+    """
+    field = (
+        "['23이후]문화·예술\n"
+        "['20,'21~'22]의사소통/글로벌,기초역량-한국어의사소통\n"
+        "['19]기초역량-한국어의사소통과국제어문\n"
+        "['16-'18]기초역량(한국어의사소통-읽기와쓰기)\n"
+        "['15이전]창의성과의사소통능력(핵심"
+    )
+    parsed = parse_lectures(
+        [
+            _lecture(
+                code="9901234567",
+                name="한류와대중문화의이해",
+                field=field,
+                category="교선",
+                schedule_room="월 15:00-16:30 (베어드홀 01101-김자헌)",
+            )
+        ]
+    )
+    p = parsed[0]
+    assert "\n" in p.field  # raw는 줄바꿈 보존
+    assert len(p.field_tags) == 5
+    assert p.field_tags[0] == "['23이후]문화·예술"
 
 
 # ── build_subject_groups ───────────────────────────────────────────────
@@ -524,6 +596,7 @@ async def test_parse_lectures_cache_hit(isolated_root: Path) -> None:
     by_code = {p["code"]: p for p in result["parsed"]}
     assert by_code["2150164203"]["subject_key"] == "21501642"
     assert by_code["2150164203"]["target"] == "컴퓨터학부 2학년"
+    assert by_code["2150164203"]["field_tags"] == ["[4차]"]  # 직렬화까지 보존
     assert by_code["2150164204"]["parse_status"] == "empty"
     assert by_code["9999999999"]["parse_status"] == "uncertain"
     assert by_code["9999999999"]["raw"] == "온라인 강의"
