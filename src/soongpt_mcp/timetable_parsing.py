@@ -17,13 +17,15 @@
 6. 빈 schedule_room(온라인/학점 0) → parse_status="empty" (충돌 검사 패스).
 7. 학점(time_points) = `"학점/시수"` 앞 숫자(float). 학점 0(사회봉사) 존재.
 8. 파싱 실패 줄 → raw 보존 + parse_status="uncertain" → 충돌 검사 건너뜀.
+9. field_tags = field를 줄바꿈으로 분해한 태그 줄 리스트. 교양선택 "전체"
+   조회의 멀티라인 field(전 학번 분야)를 줄 단위로 정규화. 학번 매칭은 LLM.
 """
 from __future__ import annotations
 
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 _WEEKDAY_ORDER = ("월", "화", "수", "목", "금", "토", "일")
 
@@ -72,6 +74,9 @@ class ParsedLecture(BaseModel):
       Lecture에서 그대로 전달 — 수강 가능 판단(target 자연어 해석, field 학번
       매칭)과 이수구분 판단(category: "교필"/"전기-<학부명>"/"전필-<학부명>"/
       "전선-<학부명>"/"교선"/"교직")은 LLM 몫.
+    - field_tags: field를 줄바꿈으로 분해한 태그 줄 리스트. 교양선택 "전체"
+      조회의 전 학번 분야 태그를 LLM이 줄 단위로 매칭할 수 있게 정규화한 것.
+      매칭 자체(어느 줄이 entered_year에 해당하는가)는 LLM이 판단한다.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -87,6 +92,11 @@ class ParsedLecture(BaseModel):
     # LLM 판단용 pass-through (원본 Lecture 필드)
     target: str | None = None
     field: str | None = None
+    # field를 줄바꿈으로 분해한 학번별 태그 줄 리스트 ("[학번태그]분야명" 형태).
+    # 교양선택(optional_elective) "전체" 조회 시 한 강의에 전 학번 분야가
+    # 줄바꿈으로 몰아오므로, LLM이 entered_year에 해당하는 줄을 고를 때 쓴다.
+    # 학번 **분해**만 이 모듈이, 학번 **매칭**(['20,'21~'22] 해석)은 LLM 몫.
+    field_tags: list[str] = Field(default_factory=list)
     professor: str | None = None
     division: str | None = None
     department: str | None = None
@@ -171,6 +181,25 @@ def extract_credits(time_points: str | None) -> float | None:
     return float(match.group(1))
 
 
+def parse_field_tags(field: str | None) -> list[str]:
+    """field를 줄바꿈으로 분해해 학번별 태그 줄 리스트로 반환.
+
+    교양선택(optional_elective) "전체" 조회 시 한 강의의 field에 전 학번 분야가
+    줄바꿈(`\\n`)으로 연결돼 온다(예: "['23이후]문화·예술\\n['20,'21~'22]...").
+    각 줄은 "[학번태그]분야명" 형태. 빈 줄/공백은 제거한다.
+
+    None/빈 문자열 → []. 단일 줄 field(예: 전공의 "[4차]") → 1요소 리스트.
+    시그니처는 `str | None`지만 `str(field)`로 감싸 raw.get 결과가 예상치 못한
+    타입(list 등)으로 넘어와도 방어한다.
+
+    학번 **분해**(줄 나누기)만 수행 — "[학번태그]" ↔ entered_year **매칭**은
+    LLM이 판단한다(태그 범위 해석: '23이후/'20,'21~'22/'16-'18/'15이전 등).
+    """
+    if not field:
+        return []
+    return [line.strip() for line in str(field).split("\n") if line.strip()]
+
+
 def parse_lectures(lectures: list[dict[str, Any]]) -> list[ParsedLecture]:
     """원본 강의 dict 목록을 ParsedLecture 목록으로 변환 (dedup by code).
 
@@ -221,6 +250,7 @@ def parse_lectures(lectures: list[dict[str, Any]]) -> list[ParsedLecture]:
             raw=schedule_room or None,
             target=raw.get("target"),
             field=raw.get("field"),
+            field_tags=parse_field_tags(raw.get("field")),
             professor=raw.get("professor"),
             division=raw.get("division"),
             department=raw.get("department"),
