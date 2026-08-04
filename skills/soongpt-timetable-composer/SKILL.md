@@ -99,7 +99,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 > - **`actual_grade >= 2` → 아래 B. 비전채플 경로** (기존 로직 그대로).
 > - **실제 학년 불명** → B(비전채플)로 기본 동작 + 사용자에게 학년 확인.
 >
-> 실제 학년(actual_grade)은 진입 절차 3번 `get_usaint_snapshot()`의 `basicInfo.actual_grade`(또는 `get_user_profile().actual_grade`)로 확보한다. actual_grade가 없으면(구버전 데이터 등) `profile.grade`로 폴백하되, grade가 PT-87 보정값(+1학기)일 수 있음을 염두에 둔다.
+> 실제 학년(actual_grade)은 진입 절차 3번 `get_usaint_snapshot()`의 `basicInfo.actual_grade`(또는 `get_user_profile().actual_grade`)로 확보한다. actual_grade가 없으면(구버전 데이터 등) `profile.grade`로 폴백하되, **`profile.grade == 2`면 1학년 2학기(소그룹채플)일 수 있으므로**(PT-87 보정으로 2가 됨) 스냅샷 새로고침 또는 사용자 학년 확인을 우선한다.
 
 #### 공통 규칙 (A/B 양쪽에 적용)
 

@@ -19,6 +19,8 @@ import pytest
 
 from soongpt_mcp import server
 from soongpt_mcp.config import Config
+from soongpt_mcp.schemas.usaint_schemas import BasicInfo, Flags, UsaintSnapshotResponse
+from soongpt_mcp.services.rusaint_service import RusaintService
 
 _FakeRun = Callable[[Any], Awaitable[dict[str, Any]]]
 
@@ -191,8 +193,6 @@ async def test_only_course_schedule_tools_are_gated(
     실제로 호출하는 RusaintService 메서드도 함께 스텁한다 (미핑 핸들러는
     실제 USAINT fetch를 막는다).
     """
-    from soongpt_mcp.services.rusaint_service import RusaintService
-
     monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path))
 
     tracker = _TrackingSemaphore(limit=Config().course_schedule_concurrency)
@@ -234,12 +234,6 @@ async def test_only_course_schedule_tools_are_gated(
     )
 
     # --- non-gated 도구: 세마포어를 획득하지 않는다 (acquire_count 불변) ---
-    from soongpt_mcp.schemas.usaint_schemas import (
-        BasicInfo,
-        Flags,
-        UsaintSnapshotResponse,
-    )
-
     async def fake_snapshot(self: Any, session_json: str) -> UsaintSnapshotResponse:
         return UsaintSnapshotResponse(
             takenCourses=[],

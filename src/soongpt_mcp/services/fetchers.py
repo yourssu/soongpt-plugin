@@ -70,8 +70,9 @@ async def fetch_basic_info(student_info_app) -> tuple[BasicInfo, list[str]]:
         # 보정 전 실제 학년 보존 — 아래 PT-87 임시 +1학기 보정과 무관한 '현재 실제
         # 학년'. 채플 분기(1학년→소그룹채플, 2학년+→비전채플) 등 실제 학년이 필요한
         # 판단은 이 값을 쓴다 (SPR-71). USAINT grade는 휴학/엇학기/졸업유예를 반영한
-        # 권위 값이므로 계산(입학연도 기준) 대신 그대로 보존한다.
-        actual_grade = grade
+        # 권위 값이므로 계산(입학연도 기준) 대신 그대로 보존한다. 초과학기 학년이
+        # 6을 넘는 극단 케이스에도 BasicInfo 스키마 검증(le=6)이 깨지지 않게 클램프.
+        actual_grade = max(1, min(6, grade))
 
         term_raw = getattr(student_info, "term", None) or getattr(
             student_info, "semester", None

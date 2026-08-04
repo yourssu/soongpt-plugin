@@ -126,6 +126,22 @@ async def test_fetch_basic_info_actual_grade_matches_usa_int_grade() -> None:
 
 
 @pytest.mark.asyncio
+async def test_fetch_basic_info_actual_grade_clamped_to_six() -> None:
+    """초과학기 학년(7)은 actual_grade=6으로 클램프 — BasicInfo le=6 검증 보호.
+
+    USAINT grade를 그대로 넣으면 초과학기 7년차에서 스키마 ValidationError로
+    스냅샷 전체 fetch가 실패할 수 있다. 채플 분기(>=2 → 비전채플) 동작은
+    6으로 클램프해도 같다.
+    """
+    app = _FakeStudentInfoApp(_default_info(grade=7, term=1))
+    basic, _ = await fetch_basic_info(app)
+
+    assert basic.actual_grade == 6
+    # PT-87 보정 학년은 기존대로 4 상한
+    assert basic.grade == 4
+
+
+@pytest.mark.asyncio
 async def test_fetch_basic_info_keeps_existing_fields_with_collage() -> None:
     """collage 추출이 기존 필드 추출을 깨지 않는지 확인."""
     app = _FakeStudentInfoApp(

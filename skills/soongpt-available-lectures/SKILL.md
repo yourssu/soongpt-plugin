@@ -157,7 +157,7 @@ find_lectures(year, semester, category_type="optional_elective",
       ```
   → `groups["chapel"]` (단일 그룹 — 호출한 한 종류만 담김)
   - **왜 actual_grade인가**: `profile.grade`는 PT-87 임시 보정(+1학기)이 들어가 1학년 2학기 학생이 grade=2로 올라 비전채플로 오라우팅될 수 있다 (SPR-71). 채플은 1학년 전체(1학기/2학기 절반씩)가 소그룹채플이므로 **보정 전 실제 학년**으로 분기한다.
-  - **actual_grade 불명 폴백 = 비전채플**: actual_grade는 보통 프로필(`get_user_profile().actual_grade`)에 있지만 구버전 데이터/수동 입력 등으로 없을 수 있다. 이때 `profile.grade`로 폴백하고, 그것도 없으면 기존 다수 사용자(2학년+) 기본값인 비전채플로.
+  - **actual_grade 불명 폴백 = 비전채플**: actual_grade는 보통 프로필(`get_user_profile().actual_grade`)에 있지만 구버전 데이터/수동 입력 등으로 없을 수 있다. 이때 `profile.grade`로 폴백하되, **`profile.grade == 2`면 PT-87 보정(+1학기)으로 1학년 2학기 학생이 2로 올라간 것일 수 있다** (2학년 1학기와 구분 불가). 스냅샷 새로고침(`get_usaint_snapshot`)으로 actual_grade를 확보하거나, 안 되면 사용자에게 현재 학년을 확인한다. 그것도 안 되면 기존 다수 사용자(2학년+) 기본값인 비전채플로.
   - **채플 종류의 데이터 격리**: actual_grade==1이면 캐시 `chapel`엔 소그룹채플만, actual_grade>=2면 비전채플만 들어간다. composer는 실제 학년에 맞는 한 종류만 있다고 가정하고 동작한다.
   - 사용자가 특정 채플명(예: "한국인채플")을 명시하면 실제 학년 무관 그 이름으로 조회.
 
