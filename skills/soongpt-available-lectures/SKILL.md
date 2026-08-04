@@ -42,6 +42,14 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 스킬이 직접 `find_lectures`와 `list_required_electives`를 **한 번에 병렬**로 호출. MCP 도구를 단일 메시지에 여러 개 담아 병렬 실행. (교양선택은 "전체" 1회 호출이라 `list_optional_elective_categories`를 fetch에 쓰지 않음 — 3-B-1)
 
+#### 3-0. find_lectures 묶음 크기 (~4개, 중요)
+
+`find_lectures`를 **4개 초과**로 쏴야 하는 구간(주로 **3-B 교양 전체**; 3-A·3-C는 한 묶음에 다 들어오므로 그냥 한 번에 병렬)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
+
+- **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
+- **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
+- **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
+
 #### 3-0b. 서버 측 자동 저장 (SPR-75) — 별도 save 불필요
 
 `find_lectures`는 기본(`save_to_cache=True`)으로 **fetch 시점에 서버가 결과를 캐시에 즉시 그룹 저장**한다. 그래서:
@@ -51,14 +59,6 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 - **응답의 lectures 상세는 컨텍스트에 유지하지 않는다.** 이미 캐시에 저장됐으므로 `count`와 `_cache`(group_key/saved)만 보고 다음 fetch로 넘어간다. 특히 교양선택 "전체"(약 337강의) 응답은 **절대 요약/재조립하거나 save로 다시 넘기지 않는다** — 대화에는 `count` 수준만 남긴다.
 - **실패 카테고리는 캐시에 error 그룹이 기록되고 예외가 그대로 온다.** `_cache.saved`가 False거나 예외가 나면 정상 진행하고, 나중에 `load_lectures_cache`로 실패 그룹(`error` 필드)을 확인할 수 있다.
 - **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다.
-
-#### 3-0. find_lectures 묶음 크기 (~4개, 중요)
-
-`find_lectures`를 **4개 초과**로 쏴야 하는 구간(주로 **3-B 교양 전체**; 3-A·3-C는 한 묶음에 다 들어오므로 그냥 한 번에 병렬)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
-
-- **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
-- **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
-- **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
