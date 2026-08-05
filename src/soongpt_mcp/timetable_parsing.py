@@ -318,6 +318,52 @@ def build_subject_groups(parsed: list[ParsedLecture]) -> dict[str, list[str]]:
     return groups
 
 
+def filter_parsed_lectures(
+    parsed: list[ParsedLecture],
+    codes: list[str] | None = None,
+    subject_keys: list[str] | None = None,
+    category_prefixes: list[str] | None = None,
+) -> list[ParsedLecture]:
+    """parsed를 부분 조회 조건으로 추린다 (SPR-87).
+
+    parse_lectures_cache의 부분 조회 옵션의 핵심 — 전체 parsed(~1MB)를 한 번에
+    받지 않고, composer가 실제로 쓰는 과목(필수/채플/교선/재수강 분반)만 받을
+    수 있게 한다. 필터를 하나도 안 주면 전체를 그대로 반환 (하위 호환).
+
+    조건이 여러 개면 **합집합(OR)**으로 적용한다:
+      - codes: code가 목록에 포함된 강의만 (정확 조회)
+      - subject_keys: subject_key(=code[:-2])가 목록에 포함된 강의만
+        (분반 그룹 전체 — subject_groups 인덱스로 잡은 분반 상세 조회용)
+      - category_prefixes: category가 주어진 prefix 중 하나로 시작하는 강의만
+        (예: "전기-" → "전기-컴퓨터학부", "교필", "채플"). category가 None이면
+        불일치로 본다 (매칭 안 됨).
+
+    parse_lectures_cache 계약상 stats/subject_groups는 항상 전체 기준으로
+    유지하고 parsed만 이 함수로 추린다. 순수 함수 — 테스트 직접 호출 가능.
+    """
+    if not any((codes, subject_keys, category_prefixes)):
+        return parsed
+
+    code_set = set(codes or [])
+    subject_set = set(subject_keys or [])
+    prefixes = [p for p in (category_prefixes or []) if p]
+
+    def _match(lecture: ParsedLecture) -> bool:
+        return (
+            (code_set and lecture.code in code_set)
+            or (subject_set and lecture.subject_key in subject_set)
+            or (
+                prefixes
+                and lecture.category is not None
+                and any(
+                    lecture.category.startswith(prefix) for prefix in prefixes
+                )
+            )
+        )
+
+    return [lecture for lecture in parsed if _match(lecture)]
+
+
 def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
     """충돌 검사 입력을 ParsedLecture로 완화 변환 (check_timetable_conflicts용).
 

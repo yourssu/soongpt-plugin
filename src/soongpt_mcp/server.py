@@ -80,6 +80,7 @@ from .timetable_parsing import (
     build_subject_groups,
     coerce_conflict_lecture,
     duplicate_slot_raws,
+    filter_parsed_lectures,
     find_conflicts,
     parse_lectures,
 )
@@ -644,7 +645,14 @@ async def load_lectures_cache(
 
 
 @mcp.tool()
-async def parse_lectures_cache(year: int, semester: str, summary: bool = False) -> dict:
+async def parse_lectures_cache(
+    year: int,
+    semester: str,
+    summary: bool = False,
+    codes: list[str] | None = None,
+    subject_keys: list[str] | None = None,
+    category_prefixes: list[str] | None = None,
+) -> dict:
     """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
 
     소스 = load_lectures_cache() 원본(schedule_room·target·field 포함)을
@@ -657,25 +665,42 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
     - "miss": 파일 없음 — parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
 
     summary=True 시 parsed 상세를 생략하고 parsed_count + subject_groups + stats
-    만 반환한다 (SPR-76). 실제 강의 선택(composer)은 기본값(False)으로 호출해
-    parsed를 확보하라 — 요약 모드는 "캐시가 파싱 가능한 상태인지"를 가볍게
-    확인할 때만 쓴다.
+    만 반환한다 (SPR-76). 요약 모드는 "캐시가 파싱 가능한 상태인지" + **전체
+    subject_groups 인덱스**를 가볍게 확인할 때 쓴다 (composer 1단계).
 
-    반환: { year, semester, summary, parsed_count, subject_groups,
+    부분 조회 (SPR-87): codes / subject_keys / category_prefixes로 parsed를
+    추릴 수 있다 — composer가 전체 ~1MB를 한 번에 받지 않고 필요한 과목만
+    조회. 여러 조건을 함께 주면 **합집합(OR)**으로 추린다.
+    - codes: code 목록 (정확 조회)
+    - subject_keys: subject_key(=code[:-2]) 목록 (분반 그룹 전체)
+    - category_prefixes: category 시작 문자열 목록 (예: "전기-"/"전필-"/"교필"/
+      "채플"/"교선" — 이수구분 prefix)
+    **subject_groups/stats는 어느 필터를 줘도 항상 전체 parsed 기준**으로 온다
+    (분반 인덱스·파싱 헬스는 전체가 필요). parsed만 필터된다.
+    필터를 안 주면 기존과 동일하게 전체 parsed를 반환한다 (하위 호환).
+
+    반환: { year, semester, summary, filters, parsed_count, subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
           + summary=False면 parsed: [ParsedLecture] 포함 (summary=True면 키 생략).
-    parsed_count = 파싱된 강의 수 (summary=True에서 parsed 대신 사용).
+    parsed_count = 이번 응답의 parsed 수 (필터 적용 시 필터된 수).
+    filters = 이번 호출에 적용된 부분 조회 조건 echo (미사용 시 전부 None).
     parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
     LLM 판단용 pass-through(target/field/professor/division/department/category/
     sub_category — 이수구분 판단은 category: "교필"/"전기-"/"전필-"/"전선-"/
     "교선"/"교직")를 담습니다.
-    subject_groups = dedup 후 parsed 기준 {subject_key(code[:-2]): [code 목록]}
-    인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서 조회하세요.
+    subject_groups = dedup 후 **전체** parsed 기준 {subject_key(code[:-2]): [code
+    목록]} 인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서
+    조회하세요 (필터로 parsed에 없는 분반 상세는 codes=[...]로 그때 조회).
 
     학기(semester): "1" | "2" | "summer" | "winter"
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
+    filters = {
+        "codes": codes,
+        "subject_keys": subject_keys,
+        "category_prefixes": category_prefixes,
+    }
 
     if cache is None or cached_at is None:
         resp = {
@@ -683,6 +708,7 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
             "semester": semester,
             "parsed_count": 0,
             "summary": summary,
+            "filters": filters,
             "subject_groups": {},
             "stats": {"total": 0, "parsed_ok": 0, "uncertain": 0, "empty": 0},
             "_cache": {"source": "miss", "cached_at": None, "age_days": None},
@@ -707,11 +733,15 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
         "uncertain": sum(1 for p in parsed if p.parse_status == "uncertain"),
         "empty": sum(1 for p in parsed if p.parse_status == "empty"),
     }
+    # 부분 조회 (SPR-87): parsed만 필터, subject_groups/stats는 전체 기준 유지 —
+    # 컴포저가 전체 분반 인덱스로 분반을 잡으면서 필요한 과목의 parsed만 받게.
+    selected = filter_parsed_lectures(parsed, codes, subject_keys, category_prefixes)
     response = {
         "year": year,
         "semester": semester,
         "summary": summary,
-        "parsed_count": stats["total"],
+        "filters": filters,
+        "parsed_count": len(selected),
         "subject_groups": build_subject_groups(parsed),
         "stats": stats,
         "_cache": {
@@ -721,7 +751,7 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
         },
     }
     if not summary:
-        response["parsed"] = _jsonify(parsed)
+        response["parsed"] = _jsonify(selected)
     # summary=True면 parsed 키를 아예 생략한다 — find_lectures(summary=True)의
     # lectures 키 생략, load_lectures_cache 메타 모드의 그룹 lectures 키 제외와
     # 동일한 관례 (SPR-76). 강의 수는 parsed_count로 확인한다.

@@ -42,14 +42,22 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
   - `interview_updated_at` = `get_interview()` 응답의 `interview.updated_at`
   - `lectures_cached_at` = 위 2번 `load_lectures_cache(year, semester, include_lectures=False)` 응답의 `_cache.cached_at`
 
-## 파싱 (1회만)
+## 파싱 (부분 조회 — SPR-87)
 
-- `parse_lectures_cache(year, semester)` 호출 — **루프 밖에서 1회만** (후보 반복마다 재호출 금지).
-- 응답의 `parsed`(ParsedLecture dict 목록), `subject_groups`(subject_key → code 목록), `stats`를 확보한다.
-- **컨텍스트 절약**: 필수 과목 후보와 `subject_groups` 인덱스만 대화에 유지하고, 나머지 강의는 카테고리별 요약으로 줄인다.
-- **교양선택(교선) 트리아지**: 교양선택은 이제 `optional_elective_all` 단일 그룹으로 전 학번 분야가 한 번에 들어온다(~337강의). 전부를 능동 추론에 올리지 말고 — `field_tags`에서 `profile.entered_year`에 해당하는 줄만 가진 강의를 1차로 추려 Flex 교선 후보 풀로 좁히고, 나머지는 요약으로 둔다.
-- `stats.uncertain` / `stats.empty` 비율이 0이 아니면 사용자에게 투명하게 알린다:
-  > "강의 {N}개 중 파싱 불확정 {U}개, 온라인(빈 시간) {E}개가 있어. 불확정은 시간 충돌 검사에서 제외돼."
+**전체 parsed(~1MB)를 한 번에 받지 않는다.** `parse_lectures_cache`의 부분 조회
+옵션(`category_prefixes` / `subject_keys` / `codes`)으로 필요한 과목만 가져온다.
+`subject_groups`(분반 인덱스)/`stats`(파싱 헬스)는 **어떤 필터를 줘도 항상 전체
+기준**으로 온다 — 분반 인덱스는 처음부터 전부 확보된다.
+
+1. **파싱 가능 여부 + 전체 인덱스** (1회): `parse_lectures_cache(year, semester, summary=True)` 호출 — `subject_groups`(전체 분반 인덱스), `stats`, `filters`(전부 None)를 받는다. parsed는 생략된다 (소형).
+   - `stats.uncertain` / `stats.empty` 비율이 0이 아니면 사용자에게 투명하게 알린다:
+     > "강의 {N}개 중 파싱 불확정 {U}개, 온라인(빈 시간) {E}개가 있어. 불확정은 시간 충돌 검사에서 제외돼."
+2. **필수 + 채플** (1회): `parse_lectures_cache(year, semester, category_prefixes=["전기-", "전필-", "교필", "채플"])` 호출 — ① 필수과목·② 미이수·④ 채플 판단에 쓰는 parsed만 받는다. `교직전공-`은 이 prefix에 안 걸려 기존과 동일하게 자동 제외.
+3. **교양선택(교선)** (Flex 후보 필요 시): `parse_lectures_cache(year, semester, category_prefixes=["교선"])` 호출 — 교선은 `optional_elective_all` 단일 그룹(~337강의)이라 여전히 크다. 전부를 능동 추론에 올리지 말고 — `field_tags`에서 `profile.entered_year`에 해당하는 줄만 가진 강의를 1차로 추려 Flex 교선 후보 풀로 좁히고, 나머지는 요약으로 둔다.
+4. **재수강/분반 상세** (필요할 때만): `subject_groups`(1번)와 `lowGradeSubjectCodes`를 코드로 교차해 대상 subject_key를 정한 뒤, `parse_lectures_cache(year, semester, subject_keys=[...])`(분반 그룹 전체) 또는 `codes=[...]`(정확 조회)로 그때 상세를 받는다. 채플 분반 `category` 미실측 대비 — 진입 절차 2번의 `groups["chapel"].codes`로 채플 code를 알 수 있으니 `codes=[...]` 조회가 대비책이다.
+
+- **분반 열거는 항상 `subject_groups`(전체 인덱스) 기준** — 부분 조회한 parsed에 없는 분반도 subject_groups에서 code를 찾고, 그 code 상세가 필요하면 `codes=[...]`로 그때 조회한다.
+- **루프 밖에서 필요한 만큼만, 재조회 금지**: 후보 반복(Base/Flex 조립·충돌 검사) 중에는 이미 확보한 parsed/subject_groups를 재사용한다 (추가 필터 호출은 판단 전에 필요한 만큼만).
 
 `parsed[i]`의 필드 중 LLM이 꼭 쓰는 것:
 - `code` / `name` / `subject_key`(code[:-2] 분반 그룹키) / `credits` / `slots`
@@ -242,7 +250,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
    - **`get_interview()`가 null이면 mismatch로 간주** (인터뷰가 지워졌다는 것 자체가 변경 신호).
 4. mismatch면:
    > "인터뷰/강의가 바뀌었어. 새로 짤까? 이어서 볼래?"
-   - **새로 짜기**: `clear_timetable_candidates(year, semester)` 후 [파싱](#파싱-1회만)부터 다시.
+   - **새로 짜기**: `clear_timetable_candidates(year, semester)` 후 [파싱](#파싱-부분-조회--spr-87)부터 다시.
    - **이어서 보기**: 기존 후보 표시 + mismatch 영향 안내 후 재개.
 5. match면: 기존 후보(`candidates`)를 표시하고 이어서 진행 (수정/확정/다시 조합).
 
