@@ -109,8 +109,10 @@ def _jsonify(obj: Any) -> Any:
 # SPR-103: 컴팩트 응답 페이지네이션 기본 상한.
 # entered_year 학번 필터가 항목 수를 못 줄이는 학번(졸업반 2020학번 = 전체 교선
 # 337개 전부 `['20,'21~'22]` 매칭)에서 컴팩트 응답이 ~60KB까지 커져 50K 파일
-# 스필을 낸다. 항목 1개 ≈ 180B × 상한 150개 ≈ 27KB → 50K 미만 안전. 초과분은
-# `offset` 이어보기로 조회한다 (SPR-103).
+# 스필을 낸다. 항목 1개 ≈ 180B × 상한 150개 ≈ 27KB → `include_subject_groups=False`
+# 경로 기준 50K 미만 안전 (기본값 True면 인덱스 ~20KB가 합산되므로 컴팩트 조회는
+# 반드시 False와 함께 쓴다 — SPR-103/critic). 초과분은 `offset` 이어보기로
+# 조회한다 (SPR-103).
 _COMPACT_LIMIT = 150
 
 
@@ -890,14 +892,15 @@ async def parse_lectures_cache(
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
-    effective_limit = _COMPACT_LIMIT if limit is None else limit
+    effective_limit = _COMPACT_LIMIT if limit is None else max(limit, 0)
+    effective_offset = max(offset, 0)
     filters = {
         "codes": codes,
         "subject_keys": subject_keys,
         "category_prefixes": category_prefixes,
         "entered_year": entered_year,
         "limit": effective_limit,
-        "offset": offset,
+        "offset": effective_offset,
     }
 
     if cache is None or cached_at is None:
