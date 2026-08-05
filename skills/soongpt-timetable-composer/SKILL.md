@@ -42,7 +42,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
   - `interview_updated_at` = `get_interview()` 응답의 `interview.updated_at`
   - `lectures_cached_at` = 위 2번 `load_lectures_cache(year, semester, include_lectures=False)` 응답의 `_cache.cached_at`
 
-## 파싱 (부분 조회 — SPR-87)
+## 파싱 (부분 조회)
 
 **전체 parsed(~1MB)를 한 번에 받지 않는다.** `parse_lectures_cache`의 부분 조회
 옵션(`category_prefixes` / `subject_keys` / `codes`)으로 필요한 과목만 가져온다.
@@ -250,7 +250,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
    - **`get_interview()`가 null이면 mismatch로 간주** (인터뷰가 지워졌다는 것 자체가 변경 신호).
 4. mismatch면:
    > "인터뷰/강의가 바뀌었어. 새로 짤까? 이어서 볼래?"
-   - **새로 짜기**: `clear_timetable_candidates(year, semester)` 후 [파싱](#파싱-부분-조회--spr-87)부터 다시.
+   - **새로 짜기**: `clear_timetable_candidates(year, semester)` 후 [파싱](#파싱-부분-조회)부터 다시.
    - **이어서 보기**: 기존 후보 표시 + mismatch 영향 안내 후 재개.
 5. match면: 기존 후보(`candidates`)를 표시하고 이어서 진행 (수정/확정/다시 조합).
 
