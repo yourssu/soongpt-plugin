@@ -702,37 +702,20 @@ async def load_lectures_cache(
 
     include_lectures=False (권장 — 캐시 히트 여부만 확인할 때): groups가 그룹
     메타(카테고리·params·count·error·codes)로 축소돼 응답이 작다 (SPR-76).
-    강의 상세(시간/교수/강의실)가 필요하면 기본값(True)으로 호출하라. codes는
-    그룹 강의 code 목록이라 그룹 단위 code 집합(예: chapel 채플 식별)이 필요한
-    소비자는 메타 모드로도 충분하다.
 
-    codes(선택, SPR-88): **부분 상세 모드** — 지정한 강의 code들만 상세 lecture
-    dict로 반환한다. 전 그룹에서 code 매칭 강의를 모아 flat ``lectures`` 배열로
-    주고 ``groups``는 메타로 축소해 응답을 대폭 줄인다 (673KB → 수 KB). 시각화
-    단계처럼 확정 후보 몇 개의 상세만 필요한 경우 사용. ``codes`` 지정 시
-    ``include_lectures``와 무관하게 상세를 반환한다. 캐시에 없는 code는
-    ``unmatched_codes``로 보고한다 (후보 code는 save_timetable_candidate가 이미
-    캐시 존재 검증하므로 정상 흐름에선 비어야 한다).
-
-    include_groups(선택, SPR-92): 기본 ``True``. ``False``면 응답에서 ``groups``
-    키를 아예 빼고 ``count``/``total_lectures`` 스칼라만 남긴다 — codes 부분 모드처럼
-    lectures 상세만 필요하고 그룹 메타가 불필요한 호출(시각화 등)에서 전체 그룹
-    메타(~30-40KB) 컨텍스트 낭비를 없앤다. ``include_lectures``와 무관하게 동작하며
-    기본값(True)은 기존 응답 스키마를 유지한다 (하위 호환). **주의: ``codes`` 없이
-    ``include_groups=False``만 주면 (``include_lectures=True``여도) groups도 lectures도
-    없는 스칼라 요약만 반환된다** — lecture 상세가 필요하면 반드시 ``codes=[...]``와
-    함께 쓴다.
+    codes (SPR-88): 지정한 code들의 상세 lecture dict를 전 그룹에서 모아 flat
+    ``lectures``로 반환한다 — 시각화처럼 확정 후보 몇 개만 필요할 때 (673KB →
+    수 KB). 캐시에 없는 code는 ``unmatched_codes``로 보고한다.
+    include_groups=False (SPR-92): groups 메타를 빼고 스칼라/lectures만 남긴다.
+    **codes 없이 include_groups=False만 주면 lectures도 없는 스칼라 요약만 온다.**
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
-    반환: { year, semester, groups: {group_key: {category_type, params, lectures, count, error}},
-            count, include_lectures, include_groups, total_lectures, _cache: {source, cached_at, age_days} }
-          + codes 지정 시: lectures, matched_count, unmatched_codes 추가
-          + include_groups=False 시: groups 키 생략 (count/total_lectures는 유지)
-    - `count` = **그룹 수** (len(groups)). 다른 도구들의 count 관례와 동일.
-    - `total_lectures` = **총 강의 수** (모든 groups의 count 합, SPR-78).
-      요약 표시/판단은 이 필드를 쓴다. error 그룹은 count=0이라 합산에서 제외.
-    - `include_lectures` = 이번 호출의 메타 모드 여부 (SPR-76). codes 지정 시 True.
+    반환: { year, semester, groups, count, include_lectures, include_groups,
+            total_lectures, _cache } + codes 지정 시: lectures, matched_count,
+            unmatched_codes 추가 + include_groups=False 시: groups 생략.
+    - count = 그룹 수 (len(groups)). total_lectures = 총 강의 수 (error 그룹 제외,
+      SPR-78). include_lectures = 메타 모드 여부 (codes 지정 시 True).
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
@@ -806,10 +789,10 @@ async def load_lectures_cache(
     return hit_resp
 
 
-@mcp.tool()
-async def parse_lectures_cache(
+async def _parse_lectures_cache_impl(
     year: int,
     semester: str,
+    *,
     summary: bool = False,
     codes: list[str] | None = None,
     subject_keys: list[str] | None = None,
@@ -1001,6 +984,131 @@ async def parse_lectures_cache(
     if source == "stale":
         response["guidance"] = "강의 데이터가 7일 지났어요. 새로고침할까요?"
     return response
+
+
+@mcp.tool()
+async def parse_lectures_cache(
+    year: int,
+    semester: str,
+    summary: bool = False,
+    codes: list[str] | None = None,
+    subject_keys: list[str] | None = None,
+    category_prefixes: list[str] | None = None,
+    include_subject_groups: bool = True,
+    entered_year: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> dict:
+    """저장된 강의 캐시를 시간표 파싱 결과(parsed + subject_groups)로 변환.
+
+    응답의 `_cache.source` (load_lectures_cache 관례와 동일):
+    - "cache": 캐시 hit (7일 이내)
+    - "stale": 파일은 있으나 7일 경과 — 데이터는 그대로 반환하고 source만 표시
+    - "miss": 파일 없음 — parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
+
+    부분 조회 (SPR-87): codes / subject_keys / category_prefixes로 parsed를
+    추린다 (여러 조건 = 합집합 OR). subject_groups/stats는 어느 필터를 줘도 항상
+    전체 parsed 기준. include_subject_groups=False (SPR-95)면 subject_groups 키를
+    생략한다 (기본 True — 하위 호환).
+
+    summary=True (SPR-76) 시 parsed 상세를 생략하고 parsed_count + stats(+
+    subject_groups)만 반환한다 — composer 1단계(전체 분반 인덱스 확인)용.
+
+    **전용 도구 (SPR-112)** — 아래 조합은 옵션을 시그니처에 고정한 전용 도구를
+    쓰면 파라미터를 맞출 필요가 없다:
+    - 교선 컴팩트 후보(entered_year + 컴팩트 + 상한 150 + subject_groups 제외):
+      `list_optional_elective_candidates(year, semester, entered_year)`
+    - codes 부분 상세(슬롯 포함): `get_lecture_details(year, semester, codes=[...])`
+
+    반환: { year, semester, summary, filters, parsed_count, subject_groups,
+            stats, _cache, guidance? } + summary=False면 parsed + entered_year
+            지정 시 total_matched/truncated 추가.
+    parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
+    LLM 판단용 pass-through(target/field/professor/division/department/category/
+    sub_category). entered_year 지정 시 컴팩트(code/name/credits/field_tags만 —
+    슬롯 없음, check_timetable_conflicts에 넘기지 말 것).
+    subject_groups = 전체 parsed 기준 {subject_key: [code]} 인덱스.
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+    """
+    return await _parse_lectures_cache_impl(
+        year,
+        semester,
+        summary=summary,
+        codes=codes,
+        subject_keys=subject_keys,
+        category_prefixes=category_prefixes,
+        include_subject_groups=include_subject_groups,
+        entered_year=entered_year,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@mcp.tool()
+async def list_optional_elective_candidates(
+    year: int,
+    semester: str,
+    entered_year: int,
+    offset: int = 0,
+) -> dict:
+    """교양선택(교선) 컴팩트 후보 조회 — 내 학번에 열린 교선 후보만.
+
+    parse_lectures_cache의 교선 컴팩트 경로를 시그니처에 고정한 전용 도구
+    (SPR-112): category_prefixes=["교선"] + entered_year 학번 필터 + 컴팩트
+    (code/name/credits/field_tags — 슬롯 없음) + 상한 150 + subject_groups 제외를
+    자동 적용한다.
+
+    - total_matched/truncated: 상한 150을 넘으면 truncated=true — offset을 늘려
+      이어받는다 (offset=150 → 151~300, ...).
+    - 컴팩트 항목은 슬롯이 없어 check_timetable_conflicts에 그대로 넘기면 안 된다
+      (ValueError).
+    - 시간 상세(슬롯 포함)가 필요하면
+      get_lecture_details(year, semester, codes=[...]).
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+    """
+    return await _parse_lectures_cache_impl(
+        year,
+        semester,
+        category_prefixes=["교선"],
+        include_subject_groups=False,
+        entered_year=entered_year,
+        offset=offset,
+    )
+
+
+@mcp.tool()
+async def get_lecture_details(
+    year: int,
+    semester: str,
+    codes: list[str],
+) -> dict:
+    """특정 강의들의 부분 상세 조회 — codes로 parsed 상세(슬롯 포함)만.
+
+    parse_lectures_cache의 codes 부분 조회 + subject_groups 제외를 시그니처에
+    고정한 전용 도구 (SPR-112). subject_groups(전체 인덱스 ~20KB)를 빼고 해당
+    강의의 full parsed(슬롯 포함 — check_timetable_conflicts 입력 가능)만 반환.
+
+    - codes는 한 번에 ~40개 이하 권장 (50K 파일 스필 방지).
+    - 캐시에 없는 code는 parsed에서 제외된다 (parsed_count로 확인).
+    - subject_groups가 필요한 조회(분반 그룹 열거)는
+      parse_lectures_cache(subject_keys=[...]).
+
+    학기(semester): "1" | "2" | "summer" | "winter"
+    """
+    if not codes:
+        # 빈 codes는 parse_lectures_cache에서 '필터 없음'으로 해석돼 전체 parsed를
+        # 반환한다(50K 스필) — 전용 도구는 그 foot-gun을 막기 위해 명시적 오류.
+        raise ValueError(
+            "codes가 비어 있습니다. 조회할 강의 code 목록을 지정해주세요."
+        )
+    return await _parse_lectures_cache_impl(
+        year,
+        semester,
+        codes=codes,
+        include_subject_groups=False,
+    )
 
 
 @mcp.tool()
