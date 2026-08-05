@@ -109,7 +109,8 @@ def _jsonify(obj: Any) -> Any:
 def _compact_lecture(lecture: ParsedLecture) -> dict[str, Any]:
     """entered_year 조회용 교선 후보 컴팩트 dict (SPR-99).
 
-    Flex 후보 좁히기에 필요한 최소 — code/name/credits + 매칭 field_tags.
+    Flex 후보 좁히기에 필요한 최소 — code/name/credits + field_tags
+    (학번 매칭 줄 + 비학번 태그 줄, SPR-104).
     slots·raw·target 등 시간 상세는 `codes=[...]` 지연 조회로 재확보한다.
     이 축소로 337강의 교선 응답을 50K 파일 스필 임계값 미만(~32~38KB)으로
     유지한다. 컴팩트 항목은 slots가 없어 `check_timetable_conflicts`에
