@@ -107,7 +107,7 @@ def _build_gyoseon_many_cache(count: int) -> LecturesCache:
 @pytest.mark.asyncio
 async def test_list_optional_elective_candidates_fixed_combination() -> None:
     """교선 컴팩트 + entered_year 필터 + subject_groups 제외가 자동 적용된다."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.list_optional_elective_candidates(2026, "1", entered_year=2023)
 
@@ -130,7 +130,7 @@ async def test_list_optional_elective_candidates_fixed_combination() -> None:
 @pytest.mark.asyncio
 async def test_list_optional_elective_candidates_matches_parse() -> None:
     """전용 도구 = parse_lectures_cache의 교선 컴팩트 경로와 등가 (SPR-112)."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     dedicated = await server.list_optional_elective_candidates(2026, "1", entered_year=2023)
     general = await server.parse_lectures_cache(
@@ -150,7 +150,7 @@ async def test_list_optional_elective_candidates_matches_parse() -> None:
 @pytest.mark.asyncio
 async def test_list_optional_elective_candidates_pagination_offset() -> None:
     """상한 150 초과 시 truncated=true — offset으로 이어받는다 (SPR-103/112)."""
-    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+    cache_mod._save_lectures_cache(_build_gyoseon_many_cache(200))
 
     resp1 = await server.list_optional_elective_candidates(2026, "1", entered_year=2020)
     assert resp1["parsed_count"] == 150
@@ -189,7 +189,7 @@ async def test_list_optional_elective_candidates_non_gyoseon_excluded() -> None:
         count=1,
         error=None,
     )
-    cache_mod.save_lectures_cache(cache)
+    cache_mod._save_lectures_cache(cache)
 
     resp = await server.list_optional_elective_candidates(2026, "1", entered_year=2023)
 
@@ -218,7 +218,7 @@ async def test_list_optional_elective_candidates_miss() -> None:
 @pytest.mark.asyncio
 async def test_get_lecture_details_codes_full_detail() -> None:
     """codes 지정 → 해당 강의의 full parsed(슬롯 포함)만, subject_groups 제외."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.get_lecture_details(2026, "1", codes=["3161011001"])
 
@@ -236,7 +236,7 @@ async def test_get_lecture_details_codes_full_detail() -> None:
 @pytest.mark.asyncio
 async def test_get_lecture_details_matches_parse() -> None:
     """전용 도구 = parse_lectures_cache(codes, include_subject_groups=False)와 등가."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     dedicated = await server.get_lecture_details(2026, "1", codes=["3161011001", "3161011003"])
     general = await server.parse_lectures_cache(
@@ -252,7 +252,7 @@ async def test_get_lecture_details_matches_parse() -> None:
 @pytest.mark.asyncio
 async def test_get_lecture_details_unmatched_codes_excluded() -> None:
     """캐시에 없는 code는 parsed에서 제외 — parsed_count로 확인."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.get_lecture_details(
         2026, "1", codes=["3161011001", "9999999999"]
@@ -271,7 +271,7 @@ async def test_get_lecture_details_empty_codes_rejected() -> None:
     parse_lectures_cache의 빈 codes는 '필터 없음'으로 해석돼 전체 parsed(~300KB)를
     반환하지만, 전용 도구는 그 오용을 막기 위해 명시적으로 거부한다.
     """
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     with pytest.raises(ValueError):
         await server.get_lecture_details(2026, "1", codes=[])
