@@ -8,6 +8,7 @@ CLAUDE_PLUGIN_DATA는 conftest의 전역 autouse 픽스처가 임시 디렉토�
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -639,6 +640,8 @@ async def test_parse_lectures_cache_partial_codes() -> None:
         "subject_keys": None,
         "category_prefixes": None,
         "entered_year": None,
+        "limit": 150,
+        "offset": 0,
     }
     # 필터로 parsed에 없는 분반도 subject_groups 인덱스에는 남는다
     assert resp["subject_groups"]["21500785"] == ["2150078501", "2150078502"]
@@ -658,6 +661,8 @@ async def test_parse_lectures_cache_no_filter_backward_compat() -> None:
         "subject_keys": None,
         "category_prefixes": None,
         "entered_year": None,
+        "limit": 150,
+        "offset": 0,
     }
 
 
@@ -848,3 +853,139 @@ async def test_parse_lectures_cache_entered_year_and_category_prefixes() -> None
     assert "2150164203" not in codes  # category_prefixes가 먼저 제외 (AND)
     assert set(codes) == {"3161011001", "3161011002"}
     assert resp["stats"]["total"] == 4  # 전기- 추가 포함, stats는 전체 기준
+
+
+# ── SPR-103: 컴팩트 응답 페이지네이션 (50K 스필 방지) ───────────────────
+
+
+def _build_gyoseon_many_cache(count: int) -> LecturesCache:
+    """교선 학번 필터 페이지네이션 테스트용 — 전부 2020학번 매칭 태그 강의 N개.
+
+    SPR-103 실측 재현: 졸업반(2020)은 전체 교선이 전부 `['20,'21~'22]` 매칭이라
+    entered_year 필터가 항목 수를 못 줄인다 → 컴팩트 응답 ~60KB → 기본 상한으로 잘림.
+    """
+    return LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "optional_elective_all": LectureGroupEntry(
+                category_type="optional_elective",
+                params={"category": "전체"},
+                lectures=[
+                    {
+                        "code": f"3161{i:06d}",
+                        "name": f"교양선택과목{i}",
+                        "category": "교선",
+                        "time_points": "3/3",
+                        "field": "['20,'21~'22]의사소통/글로벌",
+                        "schedule_room": "월 14:00-15:15 (숭덕 02108-이선생)",
+                    }
+                    for i in range(count)
+                ],
+                count=count,
+                error=None,
+            ),
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_limit_cap() -> None:
+    """컴팩트 응답 기본 상한 150 — 초과분은 truncated로 알린다 (SPR-103).
+
+    entered_year 필터가 항목 수를 못 줄이는 학번(졸업반 2020)에서도 200개 컴팩트
+    응답(실측 ~60KB 상당)을 기본 상한 150개로 잘라 50K 미만을 보장한다.
+    """
+    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2020,
+    )
+
+    assert resp["parsed_count"] == 150
+    assert resp["total_matched"] == 200
+    assert resp["truncated"] is True
+    items = resp["parsed"]
+    assert len(items) == 150
+    assert all(set(p) == {"code", "name", "credits", "field_tags"} for p in items)
+    assert resp["filters"]["limit"] == 150
+    assert resp["filters"]["offset"] == 0
+    # 핵심: 상한 적용 시 응답이 50K 미만 (스필 방지 목표)
+    assert len(json.dumps(resp, ensure_ascii=False)) < 50_000
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_offset_continuation() -> None:
+    """truncated면 offset을 늘려 나머지를 이어받는다 (SPR-103)."""
+    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+
+    resp1 = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2020,
+    )
+    assert resp1["truncated"] is True
+    first = [p["code"] for p in resp1["parsed"]]
+
+    resp2 = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2020, offset=150,
+    )
+    second = [p["code"] for p in resp2["parsed"]]
+    assert resp2["parsed_count"] == 50
+    assert resp2["total_matched"] == 200
+    assert resp2["truncated"] is False
+    # 페이지 간 중복/누락 없음 + 순서 안정 (동일 캐시에서 결정적)
+    assert len(set(first) & set(second)) == 0
+    assert len(first) + len(second) == 200
+    assert resp2["filters"]["offset"] == 150
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_limit_zero_unlimited() -> None:
+    """limit=0 → 상한 없음 (하위 호환) — 전체 반환 + truncated False."""
+    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2020, limit=0,
+    )
+
+    assert resp["parsed_count"] == 200
+    assert resp["total_matched"] == 200
+    assert resp["truncated"] is False
+    assert resp["filters"]["limit"] == 0
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_explicit_limit() -> None:
+    """명시적 limit 적용 — 상한만큼만 반환."""
+    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2020, limit=50,
+    )
+
+    assert resp["parsed_count"] == 50
+    assert resp["total_matched"] == 200
+    assert resp["truncated"] is True
+    assert resp["filters"]["limit"] == 50
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_limit_ignored_without_entered_year() -> None:
+    """limit/offset은 entered_year 컴팩트 경로에만 적용 — full parsed는 무시 (하위 호환)."""
+    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        limit=1, offset=1,
+    )
+
+    assert len(resp["parsed"]) == 3  # limit=1 무시 — 전체 반환
+    assert "total_matched" not in resp
+    assert "truncated" not in resp
+    assert resp["filters"]["limit"] == 1
+    assert resp["filters"]["offset"] == 1

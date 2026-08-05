@@ -106,6 +106,16 @@ def _jsonify(obj: Any) -> Any:
     return obj
 
 
+# SPR-103: 컴팩트 응답 페이지네이션 기본 상한.
+# entered_year 학번 필터가 항목 수를 못 줄이는 학번(졸업반 2020학번 = 전체 교선
+# 337개 전부 `['20,'21~'22]` 매칭)에서 컴팩트 응답이 ~60KB까지 커져 50K 파일
+# 스필을 낸다. 항목 1개 ≈ 180B × 상한 150개 ≈ 27KB → `include_subject_groups=False`
+# 경로 기준 50K 미만 안전 (기본값 True면 인덱스 ~20KB가 합산되므로 컴팩트 조회는
+# 반드시 False와 함께 쓴다 — SPR-103/critic). 초과분은 `offset` 이어보기로
+# 조회한다 (SPR-103).
+_COMPACT_LIMIT = 150
+
+
 def _compact_lecture(lecture: ParsedLecture) -> dict[str, Any]:
     """entered_year 조회용 교선 후보 컴팩트 dict (SPR-99).
 
@@ -798,6 +808,8 @@ async def parse_lectures_cache(
     category_prefixes: list[str] | None = None,
     include_subject_groups: bool = True,
     entered_year: int | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> dict:
     """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
 
@@ -850,12 +862,26 @@ async def parse_lectures_cache(
     **entered_year는 category_prefixes/codes/subject_keys와 AND**로 적용된다
     (선택 조건이 먼저 고른 parsed 위에 다시 학번 필터).
 
+    limit / offset (SPR-103): entered_year 컴팩트 응답의 **페이지네이션 상한**.
+    entered_year 필터가 항목 수를 못 줄이는 학번(졸업반 2020학번 — 전체 교선
+    337개 전부 매칭)에서 컴팩트 응답이 ~60KB까지 커져 50K 파일 스필을 낸다.
+    기본 limit=None이면 서버 기본 상한 **150개**를 적용해 50K 미만을 보장하고,
+    초과분은 응답의 `total_matched`/`truncated`로 알 수 있다 — 나머지를 보려면
+    `offset`을 늘려 이어받는다 (offset=150 → 151~300, ...). limit=0이면 무제한
+    (하위 호환 — 스필 위험은 호출자 책임). **limit/offset은 entered_year가
+    지정된 컴팩트 경로에만 적용**되고, entered_year 없이(전체/full parsed)는
+    무시된다.
+
     반환: { year, semester, summary, filters, parsed_count, subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
+          + entered_year 지정 시: total_matched, truncated 추가.
           + summary=False면 parsed 포함 (summary=True면 키 생략).
-    parsed_count = 이번 응답의 parsed 수 (필터 적용 시 필터된 수).
+    parsed_count = 이번 응답의 parsed 수 (필터/상한 적용 시 그 결과 수).
+    total_matched = 필터 통과 전체 수 (페이지네이션 전 — SPR-103).
+    truncated = 현재 페이지 뒤에 더 이어받을 수 있는지 (offset + parsed_count <
+      total_matched일 때 True).
     filters = 이번 호출에 적용된 조회 조건 echo (미사용 시 전부 None —
-      entered_year 포함).
+      entered_year 포함). limit은 서버 기본 상한 적용 후 값(기본 150)을 반영.
     parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
     LLM 판단용 pass-through(target/field/professor/division/department/category/
     sub_category — 이수구분 판단은 category: "교필"/"전기-"/"전필-"/"전선-"/
@@ -870,11 +896,15 @@ async def parse_lectures_cache(
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
+    effective_limit = _COMPACT_LIMIT if limit is None else max(limit, 0)
+    effective_offset = max(offset, 0)
     filters = {
         "codes": codes,
         "subject_keys": subject_keys,
         "category_prefixes": category_prefixes,
         "entered_year": entered_year,
+        "limit": effective_limit,
+        "offset": effective_offset,
     }
 
     if cache is None or cached_at is None:
@@ -896,6 +926,9 @@ async def parse_lectures_cache(
             resp["subject_groups"] = {}
         if not summary:
             resp["parsed"] = []
+        if entered_year is not None:
+            resp["total_matched"] = 0
+            resp["truncated"] = False
         return resp
 
     source = "cache" if is_lectures_cache_fresh(cached_at, now) else "stale"
@@ -916,6 +949,14 @@ async def parse_lectures_cache(
     # 교선 대형 그룹의 parsed 전체(50K 스필)를 받지 않게 한다.
     if entered_year is not None:
         selected = filter_parsed_by_entered_year(selected, entered_year)
+        total_matched = len(selected)
+        # 컴팩트 응답 50K 스필 방지 페이지네이션 (SPR-103) — entered_year 필터가
+        # 항목 수를 못 줄이는 학번(졸업반 2020학번 등)에서 컴팩트 응답이 ~60KB까지
+        # 커져도 상한으로 잘라 50K 미만을 보장한다. 초과분은 offset을 늘려 이어받고,
+        # limit=0이면 무제한(하위 호환 — 스필 위험은 호출자 책임).
+        offset = max(offset, 0)
+        if effective_limit > 0:
+            selected = selected[offset : offset + effective_limit]
     response = {
         "year": year,
         "semester": semester,
@@ -929,6 +970,12 @@ async def parse_lectures_cache(
             "age_days": (now - cached_at).days,
         },
     }
+    # 컴팩트 경로(entered_year 지정)에서만 페이지네이션 메타를 내보낸다 (SPR-103).
+    # total_matched = 필터 통과 전체 수, truncated = 현재 페이지 뒤에 더 남았는지
+    # (페이지 끝 인덱스 offset+len(selected)가 total_matched보다 작으면 이어받을 수 있음).
+    if entered_year is not None:
+        response["total_matched"] = total_matched
+        response["truncated"] = offset + len(selected) < total_matched
     # subject_groups는 전체 parsed 기준(~20KB)이라 분반 인덱스가 필요 없는 호출에선
     # include_subject_groups=False로 끌 수 있다 (SPR-95). 기본 True(하위 호환).
     if include_subject_groups:
