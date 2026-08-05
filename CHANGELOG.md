@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-08-05
+
+개선 워크플로우 5차 (Iteration 6 실측 기반) — 교선 컴팩트 조회로 파일 스필 0회 달성, 학기 불일치·Case A 표면화 보강.
+
+### Added
+
+- `parse_lectures_cache` `entered_year` 학번 필터 — 교선 337강의를 학번 해당분만 컴팩트 후보(6.6x 축소)로 반환, 파일 스필 제거 (SPR-99) (#64)
+- `check_timetable_conflicts` Case A `(대상외수강제한)` warnings — 후보 저장·재개 시 누락 방지 (SPR-101) (#63)
+
+### Fixed
+
+- `load_department_map` 학기 불일치 시 bundled seed 무시 — 2학기에 1학기 seed가 반환되던 문제 (SPR-100) (#62)
+
 ## [1.2.3] - 2026-08-05
 
 개선 워크플로우 4차 (Iteration 5 실측 기반) — 스킬 배선 완성으로 잔여 스필 제거, 대상외 수강신청 경고 강화.
