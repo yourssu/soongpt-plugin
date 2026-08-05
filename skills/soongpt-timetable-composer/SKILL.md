@@ -52,7 +52,9 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 1. **파싱 가능 여부 + 전체 인덱스** (1회): `parse_lectures_cache(year, semester, summary=True)` 호출 — `subject_groups`(전체 분반 인덱스), `stats`, `filters`(전부 None)를 받는다. parsed는 생략된다 (소형).
    - `stats.uncertain` / `stats.empty` 비율이 0이 아니면 사용자에게 투명하게 알린다:
      > "강의 {N}개 중 파싱 불확정 {U}개, 온라인(빈 시간) {E}개가 있어. 불확정은 시간 충돌 검사에서 제외돼."
-2. **필수 + 채플** (1회): `parse_lectures_cache(year, semester, category_prefixes=["전기-", "전필-", "교필", "채플"])` 호출 — ① 필수과목·② 미이수·④ 채플 판단에 쓰는 parsed만 받는다. `교직전공-`은 이 prefix에 안 걸려 기존과 동일하게 자동 제외.
+2. **필수 + 채플** (1회): `parse_lectures_cache(year, semester, category_prefixes=[...])` 호출 — ① 필수과목·② 미이수·④ 채플 판단에 쓰는 parsed만 받는다. `교직전공-`은 이 prefix에 안 걸려 기존과 동일하게 자동 제외.
+   - **기본 prefix**: `["전기-", "전필-", "교필", "채플"]`
+   - **교양필수 충족 시 `교필` 제외 (SPR-91)**: 진입 절차 3번 `get_graduation_status()` 응답의 `graduationSummary.generalRequired.satisfied == true`면(교양필수 학점 이미 충족) `교필`을 빼고 `["전기-", "전필-", "채플"]`만 조회한다. **교필(교양필수)은 전 교생 대상 공통 과목이라 한 과목당 분반이 30~70개** 붙어, 단일 카테고리인데도 400건 이상이 한 번에 올라와 파일 스필(~500KB)을 일으킨다. 이미 충족한 교양필수는 ① 필수과목·② 미이수 안내에 불필요하므로 제외한다. `generalRequired`가 `null`(항목 매칭 안 됨)이거나 `satisfied != true`면 **기본 prefix `["전기-", "전필-", "교필", "채플"]`** 을 그대로 쓴다 (④ 채플과 같은 `satisfied` 기반 제외 패턴 — `satisfied`로만 판정). **단, 인터뷰 `subject_preferences`에 교필 수강 의사가 명시돼 있으면(성적 향상 재수강 등) 기본 prefix를 유지하고 ①에 포함한다** (④ 채플의 SPR-73 인터뷰 예외와 같은 패턴). **재개 경로("후보 이어서"→"새로 짜기")처럼 `graduationSummary`가 컨텍스트에 없으면 `get_graduation_status()`를 호출(30일 TTL 캐시 — 저비용)해 `satisfied`를 확인하고, 확인 불가 시 기본 prefix를 쓴다.** 교필을 제외했으면 사용자에게 "교양필수는 이미 충족해서 안내에서 제외했어"라고 고지한다.
 3. **교양선택(교선)** (Flex 후보 필요 시): `parse_lectures_cache(year, semester, category_prefixes=["교선"])` 호출 — 교선은 `optional_elective_all` 단일 그룹(~337강의)이라 여전히 크다. 전부를 능동 추론에 올리지 말고 — `field_tags`에서 `profile.entered_year`에 해당하는 줄만 가진 강의를 1차로 추려 Flex 교선 후보 풀로 좁히고, 나머지는 요약으로 둔다.
 4. **재수강/분반 상세** (필요할 때만): ③ 재수강 식별로 대상 code를 정하고, 그 code의 `subject_key`(`code[:-2]`)를 `subject_groups`(1번)에서 찾아 `parse_lectures_cache(year, semester, subject_keys=[...])`(분반 그룹 전체) 또는 `codes=[...]`(정확 조회)로 그때 상세를 받는다. `lowGradeSubjectCodes`는 `parsed[].code`와 동일 체계의 수강이력 code이므로 그대로 `codes=[...]`에 쓸 수 있고, subject_key가 필요하면 `code[:-2]`로 구한다. 채플 분반 `category` 미실측 대비 — 진입 절차 2번의 `groups["chapel"].codes`로 채플 code를 알 수 있으니 `codes=[...]` 조회가 대비책이다.
 
@@ -74,7 +76,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 ### ① 필수과목 (이번 학기에 들을 수 있는 필수)
 
-- `parsed`에서 `category`가 `"전기-"`/`"전필-"`로 시작하거나 `"교필"`인 강의 중, `target` 자연어를 해석(LLM)해 수강 가능한 것만 후보로 제시한다.
+- `parsed`에서 `category`가 `"전기-"`/`"전필-"`로 시작하거나 `"교필"`인 강의 중, `target` 자연어를 해석(LLM)해 수강 가능한 것만 후보로 제시한다. 단 **교양필수 충족 시(SPR-91) `교필`은 위 파싱 2번에서 제외됐으므로 parsed에 아예 없다** — 이미 충족했으니 안내·후보에서 빠지는 게 맞다 (교필 재수강은 ③의 find_by_lecture 폴백이 잡는다).
   - 예: `target="컴퓨터학부 2학년"`인데 사용자가 3학년이면 → "수강대상이 2학년 전용인데 괜찮아?"처럼 **대상 불일치를 명시**한다. (아래 [수강제한 규칙](#수강제한-규칙))
 - **교양필수(교필)는 SPR-51 캐시가 있을 때만** 안내한다. 캐시에 `required_elective_*` 그룹 키가 없으면(교양필수 조회가 아직 안 된 상태) 해당 부분을 생략하고:
   > "교양필수는 조회 준비 중이야. 나중에 '강의 다시 가져와' 하면 포함돼."
@@ -84,7 +86,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 > **졸업사정표는 필수 과목 식별에 쓰지 않는다** — 카테고리별 학점 요약일 뿐 과목 단위 정보가 없다. 부족 학점만 참고한다.
 
-1. **식별**: `parsed`(전기/전필/교필) ∩ `takenCourses` 코드 교차.
+1. **식별**: `parsed`(전기/전필/교필) ∩ `takenCourses` 코드 교차. 단 **교양필수 충족 시(SPR-91) `교필`은 parsed에 없어** 교차 대상에서 자동으로 제외된다 (충족했으니 미이수 교양필수도 없음).
    - 수강이력(`takenCourses[].subjects[].code`)에 **코드가 없으면 "미이수 후보"** 로 안내한다.
    - 코드가 있으면 이미 이수한 것으로 보고 안내하지 않는다.
 2. **코드 불일치 폴백**: 코드가 안 맞아 교차가 안 되는 경우(커리큘럼 개편으로 과목코드가 바뀌었을 가능성), `subjectNames`(수강이력의 {코드: 강의명})에서 **이름으로** 매칭한다. 이때 **반드시 `department` 일치를 확인**한다 — 동명이지만 다른 학과 과목을 오탐하지 않게. **부분 매칭은 적용하지 않는다** — 부분 매칭 오탐 시 이미 이수한 과목을 "이미 이수"로 잘못 빼 필수 과목 후보에서 제외되는 역위험이 있어 정확 일치가 안전하다 (③ 재수강의 부분 매칭 폴백과 달리 이수 후보는 확인 단계가 없음).
@@ -94,10 +96,10 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 ### ③ 재수강
 
 1. **식별**: `lowGradeSubjectCodes`(C/D/F 저성적) ∩ 개설 code. 코드가 교차되면 정확히 그 강의를 재수강 대상으로 삼는다.
-2. **캐시 밖 타 학부 개설 확인 (SPR-89)**: 코드 교차가 안 되면, 그 코드가 캐시에 **아예 없을** 가능성을 먼저 점검한다. `parse_lectures_cache`의 `parsed`는 **모든 캐시 그룹을 병합**한 것이므로, parsed에 없다 = 캐시 범위(주전공·복수/부전공·연계/융합·교양·채플·사이버대·교직 — `soongpt-available-lectures`가 fetch한 범위) 밖이라는 뜻이다. 그런데도 **같은 과목(같은 코드 또는 같은 이름)이 이번 학기에 캐시 범위 밖의 다른 학과/카테고리에 개설**돼 있을 수 있다 — 실측 예: 재수강 대상 신호및시스템(21502408)이 같은 코드로 IT융합전공에 개설됐는데 캐시는 `major_IT대학_AI융합학부`만 보유. "미개설"로 단정하지 말고 **`find_lectures(category_type="find_by_lecture", keyword=<과목명 또는 코드>)`** 로 캐시 밖 개설 여부를 직접 확인한다 (SPR-74 "캐시 범위 밖 미개설 오판"의 구체적 변형 — 절차 통일) — keyword는 `subjectNames[code]`에 있으면 **과목명**, 없으면(대체과목 추천 등 수강 이력이 없는 코드) **코드**를 쓴다:
+2. **캐시 밖 타 학부 개설 확인 (SPR-89)**: 코드 교차가 안 되면 아래 find_by_lecture로 실제 개설을 직접 확인한다. parsed에 없는 이유는 둘 중 하나다 — (a) 캐시 범위(주전공·복수/부전공·연계/융합·교양·채플·사이버대·교직 — `soongpt-available-lectures`가 fetch한 범위) 밖이거나, (b) 위 [파싱](#파싱-부분-조회) 2번의 prefix 필터로 제외됐거나(교양필수 충족 시 `교필` 등 — SPR-91). **두 경우 모두 find_by_lecture가 잡는다** — parsed는 이제 전체 병합이 아니라 prefix 필터를 적용한 부분 집합이므로, "parsed에 없다"가 곧 캐시 밖을 뜻하지는 않는다. 그런데도 **같은 과목(같은 코드 또는 같은 이름)이 이번 학기에 캐시 범위 밖의 다른 학과/카테고리에 개설**돼 있을 수 있다 — 실측 예: 재수강 대상 신호및시스템(21502408)이 같은 코드로 IT융합전공에 개설됐는데 캐시는 `major_IT대학_AI융합학부`만 보유. "미개설"로 단정하지 말고 **`find_lectures(category_type="find_by_lecture", keyword=<과목명 또는 코드>)`** 로 캐시 밖 개설 여부를 직접 확인한다 (SPR-74 "캐시 범위 밖 미개설 오판"의 구체적 변형 — 절차 통일) — keyword는 `subjectNames[code]`에 있으면 **과목명**, 없으면(대체과목 추천 등 수강 이력이 없는 코드) **코드**를 쓴다:
    - **발견**: 결과에서 같은 code(또는 정확 일치 과목명)를 찾으면 department가 주전공과 달라도 재수강 대상으로 삼는다. department가 다른 점을 알리고 사용자 확인을 받는다:
      > "{과목명}({code})이 이번 학기 '{department}'에 개설돼 있어. 재수강 대상으로 맞지?"
-   - **후보 저장 전 캐시 등록**: find_by_lecture는 확인용 조회라 캐시에 저장되지 않는다 — `save_timetable_candidate`의 code 검증이 강의 캐시 기준이라 캐시에 없는 code는 ValueError가 난다. 확정 전에 그 lecture의 collage/department로 **`find_lectures(category_type="major", collage=<단과대>, department=<학과>)`(정식 조회 — `major_<단과대>_<학과>` 그룹으로 캐시 저장됨)** 를 호출해 캐시에 넣은 뒤, 그 응답의 lectures에서 해당 `subject_key` 분반 그룹을 확보한다 (4번 전체 분반 열거에 사용). collage는 `load_department_map(year).mapping[학과명]` 역조회로 확보하고, mapping에 학과명 키가 없으면 사용자에게 "{학과}의 단과대가 어디야?" 직접 질문한다 (available-lectures 3-A 복수/부전공과 동일 패턴).
+   - **후보 저장 전 캐시 등록**: 찾은 code가 `subject_groups`(전체 인덱스 — [파싱](#파싱-부분-조회) 1번)에 이미 있으면 캐시 안에 있는 것이다(교양필수 충족으로 `교필`이 필터 제외된 경우 등 — SPR-91) — 재등록 불필, `codes=[...]`로 상세만 조회한다. 반대로 `subject_groups`에 없을 때만 아래 정식 조회로 캐시에 넣는다. find_by_lecture는 확인용 조회라 캐시에 저장되지 않는다 — `save_timetable_candidate`의 code 검증이 강의 캐시 기준이라 캐시에 없는 code는 ValueError가 난다. 확정 전에 그 lecture의 collage/department로 **`find_lectures(category_type="major", collage=<단과대>, department=<학과>)`(정식 조회 — `major_<단과대>_<학과>` 그룹으로 캐시 저장됨)** 를 호출해 캐시에 넣은 뒤, 그 응답의 lectures에서 해당 `subject_key` 분반 그룹을 확보한다 (4번 전체 분반 열거에 사용). collage는 `load_department_map(year).mapping[학과명]` 역조회로 확보하고, mapping에 학과명 키가 없으면 사용자에게 "{학과}의 단과대가 어디야?" 직접 질문한다 (available-lectures 3-A 복수/부전공과 동일 패턴).
    - **미발견**: 아래 3번(과목명 개편 매칭)으로 이어간다.
 3. **코드 불일치 폴백 (과목명 개편 대응 — SPR-81)**: 2번으로도 못 찾으면, 저성적 코드의 **수강 이력 과목명** `subjectNames[code]` ↔ `parsed` 이름 매칭으로 이어본다. (대체과목 추천 코드처럼 수강 이력이 없어 `subjectNames`에 없는 코드는 이름 매칭을 시도하지 않고 **5번 미개설 안내로 넘어간다**.) **이름 매칭은 반드시 `department` 일치를 확인**한다 — 동명이지만 다른 학과 과목을 오탐하지 않게. 단, `parsed[i].department`가 null/빈 교양(교필/교선) 과목은 department 일치 검사를 생략하고 이름 매칭만으로 판단한다 (2026-2 실측 기준 — 교양 department가 null로 오는 형태는 학기마다 다를 수 있음). **학부 재편으로 department가 불일치해도 `sub_category`에 사용자 학과가 포함되면 매칭 후보로 인정한다 (SPR-93 — 아래 3-2 부분 매칭에서 처리)**. 매칭은 아래 단계로 내려간다:
    1. **정확 일치**: 과거명 == 개설명 문자열 전체 동일 → 재수강 대상으로 **확정**. 단, 이 이름으로 잡힌 후보의 `department`가 사용자 주전공과 다르고(학부 재편 등) 아래 sub_category 폴백까지 확인해야 하는 케이스면 확정하지 않고 **2번(부분 매칭)으로 내려간다** — 실측 케이스(네트워크 21500758: 이름 완전 동일 + department 불일치)가 이 경로에 해당한다.
