@@ -742,7 +742,10 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
       - name / credits (선택)
       - parse_status ("ok" | "uncertain" | "empty", 기본 "ok" — slots가
         비어 있으면 "empty"로 처리해 충돌 검사에서 제외)
-      - subject_key / parse_warnings / raw (선택 — 기본값 자동 채움)
+      - subject_key / parse_warnings / raw (선택 — 기본값 자동 채움). subject_key를
+        생략하면 code[:-2]로 자동 파생되므로, 마지막 2자리만 다른 서로 다른 과목
+        (분반이 아닌 별도 과목)은 "같은 과목 분반 중복 선택"으로 오판될 수 있습니다 —
+        실제 subject_key를 알고 있으면 명시적으로 넘기세요.
     parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
     (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(target/field/
     professor 등)는 유실됩니다 — 충돌 검사 결과를 후속 조합 입력에 그대로
