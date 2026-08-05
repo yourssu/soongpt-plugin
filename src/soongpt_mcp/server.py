@@ -481,6 +481,8 @@ async def find_lectures(
         "saved": saved,
         "cached_at": datetime.now(timezone.utc).isoformat() if saved else None,
     }
+    # summary 플래그는 항상 응답에 포함해 호출자가 소형 모드 여부를 일관되게
+    # 확인할 수 있게 한다 (parse_lectures_cache/load_lectures_cache와 동일 관례).
     if summary:
         # SPR-76: lectures 상세는 컨텍스트에 올리지 않고 count 수준만 반환.
         # (결과는 save_to_cache=True면 이미 캐시에 저장됨 — 상세가 필요하면
@@ -494,6 +496,7 @@ async def find_lectures(
         }
     return {
         **_jsonify(result),
+        "summary": False,
         "_cache": cache_meta,
     }
 
@@ -694,6 +697,7 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
         "year": year,
         "semester": semester,
         "summary": summary,
+        "parsed_count": stats["total"],
         "subject_groups": build_subject_groups(parsed),
         "stats": stats,
         "_cache": {
@@ -704,7 +708,6 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
     }
     if summary:
         response["parsed"] = []
-        response["parsed_count"] = stats["total"]
     else:
         response["parsed"] = _jsonify(parsed)
     if source == "stale":

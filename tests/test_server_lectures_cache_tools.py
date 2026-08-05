@@ -8,7 +8,7 @@ CLAUDE_PLUGIN_DATA는 conftest의 전역 autouse 픽스처가 임시 디렉토�
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import pytest
@@ -196,7 +196,7 @@ async def test_find_lectures_default_includes_lectures(
     assert "lectures" in resp
     assert resp["lectures"] == _FAKE_RESULT["lectures"]
     assert resp["count"] == 1
-    assert "summary" not in resp
+    assert resp["summary"] is False
 
 
 @pytest.mark.asyncio
@@ -224,6 +224,32 @@ async def test_find_lectures_summary_error_still_raises(
     cache, _ = cache_mod.load_lectures_cache(2026, "1")
     assert cache is not None
     assert cache.groups["major_IT대학_컴퓨터학부"].error is not None
+
+
+@pytest.mark.asyncio
+async def test_find_lectures_summary_save_to_cache_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """summary + save_to_cache=False → 저장 스킵, _cache.saved=False/cached_at=None."""
+    monkeypatch.setattr(server, "_run_with_session", _fake_success_run)
+
+    resp = await server.find_lectures(
+        2026,
+        "1",
+        "major",
+        collage="IT대학",
+        department="컴퓨터학부",
+        summary=True,
+        save_to_cache=False,
+    )
+
+    assert "lectures" not in resp
+    assert resp["summary"] is True
+    assert resp["_cache"]["saved"] is False
+    assert resp["_cache"]["cached_at"] is None
+    # 저장을 건너뛰었으므로 캐시에 그룹이 남지 않는다
+    cache, _ = cache_mod.load_lectures_cache(2026, "1")
+    assert cache is None
 
 
 # ── parse_lectures_cache summary ───────────────────────────────────────────
@@ -266,4 +292,20 @@ async def test_parse_lectures_cache_miss_summary() -> None:
     assert resp["_cache"]["source"] == "miss"
     assert resp["parsed"] == []
     assert resp["parsed_count"] == 0
+    assert resp["summary"] is True
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_summary_stale() -> None:
+    """stale 캐시 + summary=True → parsed 생략 + guidance 포함."""
+    cache = _build_cache()
+    cache.cached_at = datetime.now(timezone.utc) - timedelta(days=8)
+    cache_mod.save_lectures_cache(cache)
+
+    resp = await server.parse_lectures_cache(2026, "1", summary=True)
+
+    assert resp["_cache"]["source"] == "stale"
+    assert resp["parsed"] == []
+    assert resp["parsed_count"] == 4
+    assert "guidance" in resp
     assert resp["summary"] is True
