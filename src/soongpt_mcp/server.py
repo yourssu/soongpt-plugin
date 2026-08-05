@@ -1093,11 +1093,14 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
 
     3-tier 로딩 순서 (force_refresh=False일 때):
     1. 로컬 캐시 — 이전 호출에서 빌드해 둔 파일 (즉시)
-    2. 번들 seed — 패키지에 커밋된 정적 파일 (즉시, 메인테이너가 연 1회 갱신)
+    2. 번들 seed — 패키지에 커밋된 정적 파일 (즉시, 메인테이너가 학기별 갱신)
     3. 자동 빌드 — USAINT에서 실시간 fetch (10~20초, 로컬 캐시에 저장)
 
+    semester는 오늘 날짜 기준 현재 학기(1학기/2학기)를 자동 사용. 캐시/seed의
+    semester가 현재 학기와 다르면(학기 특이적 학과 신설/통폐합 미반영 위험) 무시하고
+    자동 빌드로 재생성한다 — 응답 semester는 항상 현재 학기 기준.
+
     학과 신설/통폐합이 의심되면 force_refresh=True로 강제 재빌드.
-    semester는 오늘 날짜 기준 현재 학기(1학기/2학기)를 자동 사용.
 
     반환: {year, semester, mapping, count, _cache: {source, built_at, age_days}}.
     source="cache" | "bundled" | "fresh" 로 데이터 출처 표시.
@@ -1106,6 +1109,7 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
     now = datetime.now(timezone.utc)
+    _, current_semester = current_academic_period()
 
     if not force_refresh:
         cached, built_at = load_dept_map_cache(year)
@@ -1114,26 +1118,39 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
             and built_at is not None
             and is_department_map_fresh(built_at, now=now)
         ):
-            return _format_dept_map_response(cached, "cache", built_at, now)
+            if cached.semester == current_semester:
+                return _format_dept_map_response(cached, "cache", built_at, now)
+            logger.info(
+                "학과-단과대 로컬 캐시 semester 불일치 (캐시=%s, 현재=%s) — 자동 빌드",
+                cached.semester,
+                current_semester,
+            )
 
         bundled = load_bundled_department_map(year)
         if bundled is not None and is_department_map_fresh(
             bundled.built_at, now=now
         ):
-            return _format_dept_map_response(bundled, "bundled", bundled.built_at, now)
+            if bundled.semester == current_semester:
+                return _format_dept_map_response(
+                    bundled, "bundled", bundled.built_at, now
+                )
+            logger.info(
+                "학과-단과대 번들 seed semester 불일치 (seed=%s, 현재=%s) — 자동 빌드",
+                bundled.semester,
+                current_semester,
+            )
 
-    _, semester = current_academic_period()
     service = RusaintService()
 
     async def call(session_json: str):
         return await service.build_department_map(
-            session_json, year=year, semester=semester
+            session_json, year=year, semester=current_semester
         )
 
     built = await _run_with_session(call)
     dm = DepartmentMap(
         year=year,
-        semester=semester,
+        semester=current_semester,
         mapping=built["mapping"],
         built_at=now,
     )

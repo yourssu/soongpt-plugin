@@ -11,15 +11,19 @@ USAINT 강의시간표의 collages() + departments()를 순회하여 빌드한
 2. 번들 seed: 패키지 내 data/department_map_{year}.json (메인테이너가 커밋)
 3. 자동 빌드: USAINT에서 실시간 fetch → 로컬 캐시에 저장
 
-메인테이너 워크플로 (연 1회, 학기 시작 전):
+메인테이너 워크플로 (학기별, 학기 시작 전):
 - load_department_map(year, force_refresh=True) 호출로 fresh 빌드
 - 생성된 로컬 캐시를 src/soongpt_mcp/data/department_map_{year}.json로 복사
 - 커밋. 이후 모든 신규 사용자는 0초 seed 사용.
+- seed의 semester는 빌드 당시 학기(1/2). 호출 시 현재 학기와 다르면
+  server가 seed를 무시하고 자동 빌드하므로(SPR-100), 학기별 신설/통폐합이
+  반영되려면 학기 시작마다 위 갱신을 반복한다.
 
 캐시 무효화 조건:
 1. 캐시 파일 없음
 2. built_at으로부터 365일 경과
-3. 사용자 명시 요청 (force_refresh=True) — 신설/통폐합 학과 반영
+3. 저장된 semester가 현재 학기와 다름 (SPR-100) — 학기 특이적 학과 반영
+4. 사용자 명시 요청 (force_refresh=True) — 신설/통폐합 학과 반영
 """
 from __future__ import annotations
 
