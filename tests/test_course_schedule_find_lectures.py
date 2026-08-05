@@ -10,7 +10,8 @@ USAINT 세션/네트워크 없이 session 모듈과 app을 mock으로 교체해 
 """
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+import itertools
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import rusaint
@@ -147,3 +148,40 @@ async def test_find_lectures_connected_major_option_error_still_raises(
             category_type="connected_major",
             major="미디어예술",
         )
+
+
+@pytest.mark.asyncio
+async def test_find_lectures_fetch_time_not_negative_on_clock_jump(
+    monkeypatch: pytest.MonkeyPatch,
+    service: RusaintCourseScheduleService,
+) -> None:
+    """벽시계(time.time)가 뒤로 점프해도 fetchTime은 음수가 되면 안 된다 (SPR-106).
+
+    fetchTime이 ``time.time()``(벽시계)으로 측정되면 NTP/시스템 시각 보정으로
+    종료 시각 < 시작 시각이 되어 ``-0.31s``처럼 음수가 노출된다. 서비스가
+    ``time.monotonic()``(단조 시계)을 쓰므로, ``time.time()``을 매 호출마다
+    1초씩 뒤로 흐르게 mock해도 fetchTime은 항상 0 이상이어야 한다.
+    """
+    app = AsyncMock()
+    app.find_lectures.return_value = []
+    _patch_session_flow(monkeypatch, app)
+
+    import soongpt_mcp.services.rusaint_course_schedule_service as svc_mod
+
+    # 벽시계가 100초에서 시작해 매 호출마다 1초씩 뒤로 흐른다(음수 측정 유발).
+    # 수정된 코드는 time.time()을 호출하지 않으므로 mock은 소비되지 않고
+    # fetchTime은 실제(양수) 경과로 계산된다. time.time()으로 회귀하면 음수가 되어 실패.
+    monkeypatch.setattr(
+        svc_mod.time, "time", Mock(side_effect=itertools.count(100, -1))
+    )
+
+    result = await service.find_lectures(
+        "dummy-session",
+        year=2026,
+        semester="1",
+        category_type="required_elective",
+        lecture_name="[글로벌시민의식]글로벌시민과국제기구",
+    )
+
+    fetch_time = float(result["fetchTime"].removesuffix("s"))
+    assert fetch_time >= 0
