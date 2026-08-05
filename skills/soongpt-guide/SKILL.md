@@ -1,6 +1,6 @@
 ---
 name: soongpt-guide
-description: soongpt 플러그인 사용법 안내 스킬 — 18개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
+description: soongpt 플러그인 사용법 안내 스킬 — 20개 MCP 도구 개요, 온보딩(프로필 설정)→시간표 완성→졸업요건 확인 워크플로우, 사용자 질문 패턴별 대응 도구/스킬 매핑, 자동 로그인 흐름 설명. "/soongpt-guide", "soongpt 도움말", "플러그인 사용법", "이거 어떻게 써" 등에서 호출. 도구를 직접 호출하지 않고 안내만 담당.
 ---
 
 # SoongPT Guide
@@ -20,7 +20,7 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 
 ## 플러그인 한눈에 보기
 
-숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **18개 도구 + 4개 워크플로우 스킬**로 구성.
+숭실대 USAINT 데이터를 로컬에서 가져오는 MCP 서버. **20개 도구 + 4개 워크플로우 스킬**로 구성.
 
 | 그룹 | 도구 | 하는 일 | 보통 호출되는 방식 |
 |---|---|---|---|
@@ -31,6 +31,8 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 | 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` | 통합 조회한 강의 목록 캐시 로드 (7일 TTL — 저장은 `find_lectures`가 서버 측 자동). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | `soongpt-available-lectures` 내부에서 사용 |
 | 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사. `summary=True`면 parsed 생략, `codes`/`subject_keys`/`category_prefixes`로 부분 조회 (SPR-76/SPR-87), `include_subject_groups=False`면 subject_groups 생략 (SPR-95) | `soongpt-timetable-composer` 내부에서 사용 |
+| 시간표 파싱 | `list_optional_elective_candidates` | 교선 컴팩트 후보 전용 조회 — `parse_lectures_cache`의 교선+entered_year+컴팩트+상한150+subject_groups 제외 조합을 시그니처에 고정 (SPR-112) | `soongpt-timetable-composer` 3단계(교선)에서 사용 |
+| 시간표 파싱 | `get_lecture_details` | codes 부분 상세 전용 조회 — `parse_lectures_cache`의 codes+subject_groups 제외 조합을 시그니처에 고정 (SPR-112). 캐시에 없는 code는 제외 | `soongpt-timetable-composer` 3단계(후보 상세)에서 사용 |
 | 시간표 후보 | `load_timetable_candidates` / `save_timetable_candidate` / `clear_timetable_candidates` | 조합한 후보 로드/저장(같은 name replace, code 검증)/삭제 | `soongpt-timetable-composer` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |

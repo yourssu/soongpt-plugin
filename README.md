@@ -92,7 +92,7 @@ bash scripts/run-server.sh
 - **보안**: 학번/비밀번호는 디스크에 저장되지 않음. OS 키체인만 사용
 - **가공 전 데이터 제공**: 데이터 해석/추천 로직은 Claude에게 맡김
 - **사용자 프로필 영속화**: 매번 USAINT를 호출하지 않고 학적 컨텍스트를 로컬에 저장
-- **18개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색(서버 측 캐시 자동 저장), 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드, 시간표 파싱/충돌 검사, 시간표 후보 로드/저장/삭제, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
+- **20개 도구**: 학적/수강/성적, 졸업사정표(30일 캐싱), 강의시간표 검색(서버 측 캐시 자동 저장), 교양선택 분야 목록, 교양필수 과목명 목록, 강의 캐시 로드, 시간표 파싱/충돌 검사(교선 컴팩트 후보·codes 상세 전용 도구 포함, SPR-112), 시간표 후보 로드/저장/삭제, 학과-단과대 매핑(1년 캐싱 + 번들 seed), 프로필 조회/설정/갱신, 인터뷰 조회/설정/목록
 
 ## 도구
 
@@ -105,6 +105,8 @@ bash scripts/run-server.sh
 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | 즉시 |
 | `parse_lectures_cache` | 강의 캐시를 시간표 파싱 결과로 변환 — parsed + subject_groups(분반 그룹) + stats. `summary=True`면 parsed 생략 (SPR-76). `codes`/`subject_keys`/`category_prefixes`로 parsed 부분 조회 (SPR-87). `include_subject_groups=False`면 subject_groups 생략 (SPR-95) | 즉시 |
+| `list_optional_elective_candidates` | 교선 컴팩트 후보 전용 조회 (SPR-112) — 교선+entered_year+컴팩트+상한150+subject_groups 제외 조합을 시그니처에 고정. `total_matched`/`truncated`로 페이지네이션 | 즉시 |
+| `get_lecture_details` | codes 부분 상세 전용 조회 (SPR-112) — codes+subject_groups 제외 조합을 시그니처에 고정. full parsed(슬롯 포함) 반환 | 즉시 |
 | `check_timetable_conflicts` | 단일 후보 강의 리스트의 시간 충돌 검사 (30개 초과 시 오류) | 즉시 |
 | `load_timetable_candidates` | 저장된 시간표 후보 로드 (TTL 없음, `_cache.source`로 hit/miss 구분) | 즉시 |
 | `save_timetable_candidate` | 후보 1건 저장 — code 존재 검증, 같은 name이면 replace | 즉시 |
