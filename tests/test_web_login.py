@@ -164,14 +164,15 @@ async def test_run_web_login_raises_on_timeout(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(web_login, "authenticate", fake_auth)
     monkeypatch.setattr(web_login.webbrowser, "open", lambda url: True)
 
-    with pytest.raises(web_login.WebLoginError, match="초과") as exc_info:
+    with pytest.raises(web_login.WebLoginError, match="로그인 대기 시간 초과") as exc_info:
         await asyncio.wait_for(
             web_login.run_web_login(timeout_seconds=1),
             timeout=5,
         )
     # SPR-85: LLM이 "시스템 오류"로 오판해 자동 재시도하지 않도록,
     # 브라우저 로그인 폼 절차임을 명시하고 사용자 안내 후 1회 재시도하도록 안내해야 한다.
+    # 핵심 안티-재시도 문구("자동으로 반복 재시도하지 마세요")를 함께 검증해 회귀를 막는다.
     message = str(exc_info.value)
     assert "웹 로그인 폼" in message
     assert "사용자 로그인 절차" in message
-    assert "다시 시도" in message
+    assert "자동으로 반복 재시도하지 마세요" in message
