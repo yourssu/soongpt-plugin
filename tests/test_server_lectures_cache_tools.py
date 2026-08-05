@@ -244,6 +244,80 @@ async def test_load_lectures_cache_default_no_codes_keys() -> None:
     assert "unmatched_codes" not in resp
 
 
+# ── load_lectures_cache include_groups (SPR-92) ───────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_include_groups_false_omits_groups() -> None:
+    """codes + include_groups=False → groups 키 자체 생략, lectures만 반환 (핵심 최적화)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(
+        2026, "1", codes=["CS10101", "2150078502"], include_groups=False
+    )
+
+    # lectures는 정상 — 시각화 입력 그대로 사용
+    assert [lect["code"] for lect in resp["lectures"]] == ["CS10101", "2150078502"]
+    assert resp["matched_count"] == 2
+    # groups 키 자체가 없다 (37개 그룹 메타 ~30-40KB 절감)
+    assert "groups" not in resp
+    # 스칼라 요약은 유지
+    assert resp["count"] == 4
+    assert resp["total_lectures"] == 4
+    assert resp["include_groups"] is False
+    assert resp["_cache"]["source"] == "cache"
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_include_groups_false_meta_mode() -> None:
+    """include_groups=False (기본 모드) → groups 생략, count/total_lectures 유지."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(2026, "1", include_groups=False)
+
+    assert "groups" not in resp
+    assert resp["count"] == 4
+    assert resp["total_lectures"] == 4
+    assert resp["include_groups"] is False
+    assert resp["_cache"]["source"] == "cache"
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_include_groups_false_miss() -> None:
+    """miss + include_groups=False → groups 생략 (일관된 형태)."""
+    resp = await server.load_lectures_cache(2026, "2", include_groups=False)
+
+    assert resp["_cache"]["source"] == "miss"
+    assert "groups" not in resp
+    assert resp["count"] == 0
+    assert resp["include_groups"] is False
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_include_groups_false_miss() -> None:
+    """miss + codes + include_groups=False → groups 생략, 빈 lectures."""
+    resp = await server.load_lectures_cache(
+        2026, "2", codes=["CS10101"], include_groups=False
+    )
+
+    assert resp["_cache"]["source"] == "miss"
+    assert "groups" not in resp
+    assert resp["lectures"] == []
+    assert resp["unmatched_codes"] == ["CS10101"]
+    assert resp["include_groups"] is False
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_include_groups_default_true_backcompat() -> None:
+    """기본(include_groups=True)은 groups를 포함해 기존 스키마 유지 (하위 호환)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(2026, "1")
+
+    assert "groups" in resp
+    assert resp["include_groups"] is True
+
+
 # ── find_lectures summary ──────────────────────────────────────────────────
 
 _FAKE_RESULT = {

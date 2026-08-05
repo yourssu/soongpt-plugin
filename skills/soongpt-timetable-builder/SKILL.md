@@ -89,7 +89,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 - composer에서 사용자가 후보(A/B/C)를 **확정**하면, 완성된 시간표를 한눈에 보여주기 위해 `soongpt-timetable-visualize`로 위임한다. 후보 확정 직후가 **기본 후속 시점**이다.
 - **입력 맞춤 (중요)**: 시각화 입력은 `find_lectures` 반환과 동일한 **lecture dict 목록**이다. `code`/`name`/`professor`/`department`/`time_points`에 더해 **`schedule_room`**(요일·시간·강의실 문자열)이 있어야 그리드에 그릴 수 있다 — code 목록만으로는 렌더링할 수 없다.
-- **4단계·composer는 `include_lectures=False`(그룹 메타)로 호출하므로**(SPR-76) 원본 lecture dict(`schedule_room` 포함)는 대화 맥락에 남지 않는다. 시각화에 넘길 lecture dict은 확정 후보의 code 목록으로 `load_lectures_cache(year, semester, codes=<lecture_codes>)`(SPR-88)를 호출해 **해당 강의만** 확보한다 — 전체 상세(673KB) 대신 후보 몇 개만 컨텍스트에 올라 파일 스필을 막는다. code 목록은 `load_timetable_candidates`의 `lecture_codes`에서 얻는다.
+- **4단계·composer는 `include_lectures=False`(그룹 메타)로 호출하므로**(SPR-76) 원본 lecture dict(`schedule_room` 포함)는 대화 맥락에 남지 않는다. 시각화에 넘길 lecture dict은 확정 후보의 code 목록으로 `load_lectures_cache(year, semester, codes=<lecture_codes>, include_groups=False)`(SPR-88/SPR-92)를 호출해 **해당 강의만**(groups 메타 없이 lectures만) 확보한다 — 전체 상세(673KB)와 전체 그룹 메타(~30-40KB) 대신 후보 몇 개의 lecture dict만 컨텍스트에 올라 파일 스필을 막는다. code 목록은 `load_timetable_candidates`의 `lecture_codes`에서 얻는다.
 - 렌더링(정적 HTML 생성·기본 브라우저 오픈·시간 충돌 빨간 테두리 강조)은 시각화 스킬이 알아서 처리한다 — builder는 lecture dict을 전달하고 위임만 한다.
 - 시각화는 "기본"이지 강제가 아니다 — 사용자가 원하지 않으면 6단계 없이 흐름을 마친다.
 
