@@ -108,10 +108,15 @@ def load_lectures_cache(
     return cache, cache.cached_at
 
 
-def save_lectures_cache(
+def _save_lectures_cache(
     cache: LecturesCache, path: Path | None = None
 ) -> Path:
-    """캐시 저장. atomic write (tmp → os.replace). 부모 디렉토리 자동 생성."""
+    """캐시 저장. atomic write (tmp → os.replace). 부모 디렉토리 자동 생성.
+
+    **내부 전용**: SPR-75에서 같은 이름의 MCP 도구(``save_lectures_cache``)가
+    제거됐다. 이 함수는 find_lectures 자동 저장(``save_lectures_group``)과
+    테스트가 쓰는 내부 쓰기 API로, MCP 도구로 재노출하지 않는다.
+    """
     target = path or resolve_lectures_cache_path(cache.year, cache.semester)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = cache.model_dump(mode="json")
@@ -290,5 +295,5 @@ def save_lectures_group(
     """
     existing, _ = load_lectures_cache(year, semester, path=path)
     merged = merge_lectures_groups(existing, year, semester, {key: entry})
-    target = save_lectures_cache(merged, path=path)
+    target = _save_lectures_cache(merged, path=path)
     return merged, target

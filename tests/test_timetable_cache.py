@@ -81,7 +81,7 @@ def _save_lectures_cache(
         },
         cached_at=datetime.now(timezone.utc),
     )
-    lc.save_lectures_cache(cache)
+    lc._save_lectures_cache(cache)
 
 
 # ── 모듈: 경로 / roundtrip / None-safe ─────────────────────────────────

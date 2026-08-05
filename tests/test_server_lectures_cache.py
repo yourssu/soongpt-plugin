@@ -14,7 +14,7 @@ from soongpt_mcp import server
 from soongpt_mcp.lectures_cache import (
     LectureGroupEntry,
     LecturesCache,
-    save_lectures_cache,
+    _save_lectures_cache,
 )
 
 
@@ -59,7 +59,7 @@ async def test_miss_returns_zero_for_both_counts() -> None:
 @pytest.mark.asyncio
 async def test_count_is_group_count_and_total_lectures_sums() -> None:
     """count = 그룹 수, total_lectures = 성공 그룹 count 합 (error 그룹 제외)."""
-    save_lectures_cache(_sample_cache())
+    _save_lectures_cache(_sample_cache())
     result = await server.load_lectures_cache(2026, "1")
     assert result["_cache"]["source"] == "cache"
     assert result["count"] == 3
