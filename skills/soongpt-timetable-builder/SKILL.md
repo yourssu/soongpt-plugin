@@ -31,10 +31,10 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 | 단계 | 확인 도구 | 스킵 조건 | 진행 조건 | 비고 |
 |---|---|---|---|---|
-| 1. 프로필·수강이력 | `get_usaint_snapshot()` + `get_user_profile()` | 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | 하나라도 누락 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `college`는 USAINT 제공 필드(SPR-55)지만 그래도 비면 사용자에게 물어 `set_user_profile`로 입력 |
+| 1. 프로필·수강이력 | `get_usaint_snapshot()` + `get_user_profile()` | 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | 하나라도 누락 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `college`는 USAINT 제공 필드지만 그래도 비면 사용자에게 물어 `set_user_profile`로 입력 |
 | 2. 졸업사정표 | `get_graduation_status()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 새로 가져옴) — 그대로 사용, 별도 조치 불필요 | `force_refresh=True`는 사용자가 "새로고침"을 명시했을 때만 |
 | 3. 인터뷰 | `get_interview(year, semester)` | `completion`의 3개 섹션(`semester_strategy`, `time_preferences`, `subject_preferences`) 모두 `true` | 하나라도 `false`/없음 | 위임 대상: `soongpt-interview`. 이어서/처음부터 여부는 하위 스킬이 판단 |
-| 4. 강의 캐시 | `load_lectures_cache(year, semester, include_lectures=False)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures`. 캐시 히트 확인만 하므로 메타 모드(SPR-76) |
+| 4. 강의 캐시 | `load_lectures_cache(year, semester, include_lectures=False)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures`. 캐시 히트 확인만 하므로 메타 모드 |
 | 5. 시간표 후보 생성 | `load_timetable_candidates(year, semester)` | 후보 없음 (`_cache.source == "miss"`) → composer에 **신규 조합** 위임 | **후보 존재 (`source == "hit"`)** → composer에 **무조건 재개 위임** | **"만족" 판정은 builder가 할 수 없다**(치명②) — 후보 존재 시 composer가 10단계에서 인터뷰/강의 캐시 mismatch 판정을 한다. 위임 대상: `soongpt-timetable-composer` |
 
 `year`/`semester`는 현재 학기 기준: 1~7월="1", 8~12월="2".
@@ -44,21 +44,21 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 ### 1. 인사 + 로그인 + 프로필·수강이력 확보
 
-- "시간표 짜자"로 진입하면 먼저 사용자에게 짧은 인삿말을 보낸다. **브라우저 로그인 창이 뜰 수 있음을 사전 안내로 포함**한다 (SPR-115):
+- "시간표 짜자"로 진입하면 먼저 사용자에게 짧은 인삿말을 보낸다. **브라우저 로그인 창이 뜰 수 있음을 사전 안내로 포함**한다:
   > "시간표 짜는 거 도와줄게. 시작 전에 학교 정보(학적/수강이력)를 확인할게. 브라우저에 유세인트 로그인 창이 뜰 수 있어요."
   - 세션 유무·스냅샷 캐시 여부를 호출 전에 알 방법이 없으므로 **fetch 직전엔 항상 사전 안내를 포함**한다. 세션이 유효해서 창이 안 떠도 짧은 안내 문구는 무해하다.
   - (참고) 캐시 히트(`_cache.source == "cache"`)로 실제 fetch가 일어나지 않으면 로그인 창이 뜨지 않는다 — 이 경우 사전 안내는 불필요하다.
-  - 아래 SPR-85(로그인 실패/타임아웃 시 "창이 뜬 뒤" 대응 안내)와 **보완 관계**: 이 문구는 "창이 뜨기 전" 사전 안내다.
+  - 아래 로그인 실패/타임아웃 시 "창이 뜬 뒤" 대응 안내와 **보완 관계**: 이 문구는 "창이 뜨기 전" 사전 안내다.
 - 이어서 `get_usaint_snapshot()` 호출 — 세션이 없으면 **브라우저 로그인 폼이 자동으로 열린다**. 응답의 `_cache.source`:
   - `"cache"`: 30일 이내 스냅샷 재사용 — 프로필+수강이력이 이미 로컬에 있음 (즉시)
   - `"fresh"`: 방금 USAINT에서 가져와 프로필·수강이력을 저장함 (~9초)
-- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발, SPR-85):
+- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발):
   1. 사용자에게 "브라우저의 **웹 로그인 폼에서 로그인** 후 다시 시도해 달라"고 안내
   2. 사용자가 로그인을 마쳤다고 확인하면 `get_usaint_snapshot()`을 **한 번** 다시 호출 (재시도 시 로그인 폼이 새로 열림)
   3. 그래도 실패하면 자동 재시도를 반복하지 않고, 사용자에게 상태를 알린 뒤 중단
 - `get_user_profile()`로 핵심 필드(`department`, `grade`, `entered_year`, `college`)가 모두 채워졌는지 확인:
   - `department`/`grade`/`entered_year`은 스냅샷이 채워준다.
-  - `college`(단과대)는 USAINT가 채워주는 필드(SPR-55)다. 그래도 비어 있으면(구 프로필·USAINT 데이터 누락 등) 사용자에게 물어 `set_user_profile("college", ...)`로 입력받는다.
+  - `college`(단과대)는 USAINT가 채워주는 필드다. 그래도 비어 있으면(구 프로필·USAINT 데이터 누락 등) 사용자에게 물어 `set_user_profile("college", ...)`로 입력받는다.
 - 프로필·수강이력(`takenCourses`(코드+강의명 subjects 인라인)/`lowGradeSubjectCodes`)은 스냅샷 호출 하나로 준비되므로, 그 외 `set_user_profile()` 보충 절차는 필요 없다. `subjectNames`(코드→강의명)는 이 subjects에서 자동 파생되어 응답에만 노출됨.
 - 프로필 수정은 **사용자가 명시적으로 요청할 때만** `set_user_profile(field, value)` 사용.
 - 수강이력을 "새로고침"해야 한다면 `get_usaint_snapshot(force_refresh=True)` 호출 (사용자가 명시했을 때만).
@@ -77,7 +77,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 ### 4. 들을 수 있는 과목 조회 (위임: `soongpt-available-lectures`)
 
 - `load_lectures_cache(year, semester, include_lectures=False)` 호출 (메타 모드 — 캐시 히트 여부만 확인)
-- 스킵 조건 만족 시: 캐시 요약(총 강의 수 = `total_lectures`, 그룹 수 = `count` — SPR-78)만 보여주고 5단계로
+- 스킵 조건 만족 시: 캐시 요약(총 강의 수 = `total_lectures`, 그룹 수 = `count`)만 보여주고 5단계로
 - `"stale"`이면 사용자에게 새로고침 여부를 물어본 뒤 결정, `"miss"`면 바로 위임
 - 위임 시 `soongpt-available-lectures` 스킬이 전체 진입 절차(프로필 필수 필드 체크 포함)를 처음부터 수행
 
@@ -92,7 +92,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 - composer에서 사용자가 후보(A/B/C)를 **확정**하면, 완성된 시간표를 한눈에 보여주기 위해 `soongpt-timetable-visualize`로 위임한다. 후보 확정 직후가 **기본 후속 시점**이다.
 - **입력 맞춤 (중요)**: 시각화 입력은 `find_lectures` 반환과 동일한 **lecture dict 목록**이다. `code`/`name`/`professor`/`department`/`time_points`에 더해 **`schedule_room`**(요일·시간·강의실 문자열)이 있어야 그리드에 그릴 수 있다 — code 목록만으로는 렌더링할 수 없다.
-- **4단계·composer는 `include_lectures=False`(그룹 메타)로 호출하므로**(SPR-76) 원본 lecture dict(`schedule_room` 포함)는 대화 맥락에 남지 않는다. 시각화에 넘길 lecture dict은 확정 후보의 code 목록으로 `load_lectures_cache(year, semester, codes=<lecture_codes>, include_groups=False)`(SPR-88/SPR-92)를 호출해 **해당 강의만**(groups 메타 없이 lectures만) 확보한다 — 전체 상세(673KB)와 전체 그룹 메타(~30-40KB) 대신 후보 몇 개의 lecture dict만 컨텍스트에 올라 파일 스필을 막는다. code 목록은 `load_timetable_candidates`의 `lecture_codes`에서 얻는다.
+- **4단계·composer는 `include_lectures=False`(그룹 메타)로 호출하므로** 원본 lecture dict(`schedule_room` 포함)는 대화 맥락에 남지 않는다. 시각화에 넘길 lecture dict은 확정 후보의 code 목록으로 `load_lectures_cache(year, semester, codes=<lecture_codes>, include_groups=False)`를 호출해 **해당 강의만**(groups 메타 없이 lectures만) 확보한다 — 전체 상세(673KB)와 전체 그룹 메타(~30-40KB) 대신 후보 몇 개의 lecture dict만 컨텍스트에 올라 파일 스필을 막는다. code 목록은 `load_timetable_candidates`의 `lecture_codes`에서 얻는다.
 - 렌더링(정적 HTML 생성·기본 브라우저 오픈·시간 충돌 빨간 테두리 강조)은 시각화 스킬이 알아서 처리한다 — builder는 lecture dict을 전달하고 위임만 한다.
 - 시각화는 "기본"이지 강제가 아니다 — 사용자가 원하지 않으면 6단계 없이 흐름을 마친다.
 

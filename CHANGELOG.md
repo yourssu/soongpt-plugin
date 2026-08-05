@@ -13,15 +13,15 @@
 
 ### Added
 
-- 교선 컴팩트·부분 상세 전용 도구 분리 — `list_optional_elective_candidates`(교선 컴팩트 후보: 학번 필터+150상한+subject_groups 제외를 시그니처에 고정) / `get_lecture_details`(codes 부분 상세). parse_lectures_cache의 옵션 조합 폭발 해소 + 도구 설명 경량화 (SPR-112) (#74)
+- 교선 컴팩트·부분 상세 전용 도구 분리 — `list_optional_elective_candidates`(교선 컴팩트 후보: 학번 필터+150상한+subject_groups 제외를 시그니처에 고정) / `get_lecture_details`(codes 부분 상세). parse_lectures_cache의 옵션 조합 폭발 해소 + 도구 설명 경량화 (#74)
 
 ### Changed
 
-- `save_lectures_cache` 내부 함수 개명(`_save_lectures_cache`) — SPR-75에서 MCP 도구 제거 후에도 같은 이름으로 남아 있던 내부 API의 명명 혼동 정리 (SPR-113) (#72)
+- `save_lectures_cache` 내부 함수 개명(`_save_lectures_cache`) — MCP 도구 제거 후에도 같은 이름으로 남아 있던 내부 API의 명명 혼동 정리 (#72)
 
 ### Fixed
 
-- `find_by_lecture`/`find_by_professor`는 summary를 무시하고 항상 상세 반환 — 스킬 지침이 아니라 서버가 강제해 확인용 조회 2중 호출 원인 제거 (SPR-110) (#73)
+- `find_by_lecture`/`find_by_professor`는 summary를 무시하고 항상 상세 반환 — 스킬 지침이 아니라 서버가 강제해 확인용 조회 2중 호출 원인 제거 (#73)
 
 ## [1.2.7] - 2026-08-05
 
@@ -29,13 +29,13 @@
 
 ### Fixed
 
-- `fetchTime` 음수 방지 — 타이밍 측정 `time.time`→`time.monotonic` 전환 (SPR-106) (#68)
-- 동명 타학과 개설 과목 판정 규칙 — target 자연어 전체 해석(학년+학과 제한)으로 미개설 오판 방지 (SPR-107) (#71)
-- 미개설 안내 시 유사 이름 과목 "개편 확인 필요" 안내 추가 (SPR-109) (#69)
+- `fetchTime` 음수 방지 — 타이밍 측정 `time.time`→`time.monotonic` 전환 (#68)
+- 동명 타학과 개설 과목 판정 규칙 — target 자연어 전체 해석(학년+학과 제한)으로 미개설 오판 방지 (#71)
+- 미개설 안내 시 유사 이름 과목 "개편 확인 필요" 안내 추가 (#69)
 
 ### Changed
 
-- 캐시 등록 fetch는 코드 기확보 시 `summary=True` 허용 명시 — SPR-105 후속 보완 (SPR-108) (#70)
+- 캐시 등록 fetch는 코드 기확보 시 `summary=True` 허용 명시 — 후속 보완 (#70)
 
 ## [1.2.6] - 2026-08-05
 
@@ -43,7 +43,7 @@
 
 ### Fixed
 
-- `find_by_lecture`/정식 조회(major)는 `summary=False`(상세)로 호출 명시 — summary=True면 code가 없어 재호출하던 2중 호출 방지 (SPR-105) (#67)
+- `find_by_lecture`/정식 조회(major)는 `summary=False`(상세)로 호출 명시 — summary=True면 code가 없어 재호출하던 2중 호출 방지 (#67)
 
 ## [1.2.5] - 2026-08-05
 
@@ -51,11 +51,11 @@
 
 ### Added
 
-- 교선 컴팩트 응답 항목 수 상한(150개) + `offset` 페이지네이션 — 학번 필터가 못 줄이는 학번에서도 50K 스필 방지 (SPR-103) (#66)
+- 교선 컴팩트 응답 항목 수 상한(150개) + `offset` 페이지네이션 — 학번 필터가 못 줄이는 학번에서도 50K 스필 방지 (#66)
 
 ### Fixed
 
-- 컴팩트 field_tags 정리 — 학번 태그 줄은 매칭만, 비학번 태그 줄("기독교과목" 등)은 유지 (SPR-104) (#65)
+- 컴팩트 field_tags 정리 — 학번 태그 줄은 매칭만, 비학번 태그 줄("기독교과목" 등)은 유지 (#65)
 
 ## [1.2.4] - 2026-08-05
 
@@ -63,12 +63,12 @@
 
 ### Added
 
-- `parse_lectures_cache` `entered_year` 학번 필터 — 교선 337강의를 학번 해당분만 컴팩트 후보(6.6x 축소)로 반환, 파일 스필 제거 (SPR-99) (#64)
-- `check_timetable_conflicts` Case A `(대상외수강제한)` warnings — 후보 저장·재개 시 누락 방지 (SPR-101) (#63)
+- `parse_lectures_cache` `entered_year` 학번 필터 — 교선 337강의를 학번 해당분만 컴팩트 후보(6.6x 축소)로 반환, 파일 스필 제거 (#64)
+- `check_timetable_conflicts` Case A `(대상외수강제한)` warnings — 후보 저장·재개 시 누락 방지 (#63)
 
 ### Fixed
 
-- `load_department_map` 학기 불일치 시 bundled seed 무시 — 2학기에 1학기 seed가 반환되던 문제 (SPR-100) (#62)
+- `load_department_map` 학기 불일치 시 bundled seed 무시 — 2학기에 1학기 seed가 반환되던 문제 (#62)
 
 ## [1.2.3] - 2026-08-05
 
@@ -76,8 +76,8 @@
 
 ### Fixed
 
-- composer 파싱에 `include_subject_groups=False` 배선 — 인덱스 확보 후 호출에서 ~20KB 중복 제거, 파일 스필 1회 제거 (SPR-97) (#61)
-- 전필 `(대상외수강제한)` Case A 경고 배선 — 분반 제시/후보 제시 시점에 "대상외 수강신청 기간 필요" 명시, 졸업 필수는 제외 금지 (SPR-98) (#60)
+- composer 파싱에 `include_subject_groups=False` 배선 — 인덱스 확보 후 호출에서 ~20KB 중복 제거, 파일 스필 1회 제거 (#61)
+- 전필 `(대상외수강제한)` Case A 경고 배선 — 분반 제시/후보 제시 시점에 "대상외 수강신청 기간 필요" 명시, 졸업 필수는 제외 금지 (#60)
 
 ## [1.2.2] - 2026-08-05
 
@@ -85,14 +85,14 @@
 
 ### Added
 
-- `load_lectures_cache` `include_groups=False` 옵션 — codes 모드에서 그룹 메타(~30-40KB) 생략 (SPR-92) (#58)
-- `parse_lectures_cache` `include_subject_groups=False` 옵션 — summary/부분 조회에서 subject_groups(~20KB) 생략 (SPR-95) (#59)
+- `load_lectures_cache` `include_groups=False` 옵션 — codes 모드에서 그룹 메타(~30-40KB) 생략 (#58)
+- `parse_lectures_cache` `include_subject_groups=False` 옵션 — summary/부분 조회에서 subject_groups(~20KB) 생략 (#59)
 
 ### Fixed
 
-- 교양필수 충족 시 `교필` prefix 제외 — 교필 427건(~500KB) 파일 스필 회피 (SPR-91) (#57)
-- 재수강 부분 매칭 `sub_category` 폴백 — 학부 재편으로 department 불일치해도 매칭 후보 인정 (SPR-93) (#56)
-- 채플 credits 문서 실측 기준 갱신 (0.5 → 0.5~1.0 종류별 상이) (SPR-94) (#59)
+- 교양필수 충족 시 `교필` prefix 제외 — 교필 427건(~500KB) 파일 스필 회피 (#57)
+- 재수강 부분 매칭 `sub_category` 폴백 — 학부 재편으로 department 불일치해도 매칭 후보 인정 (#56)
+- 채플 credits 문서 실측 기준 갱신 (0.5 → 0.5~1.0 종류별 상이) (#59)
 
 ## [1.2.1] - 2026-08-05
 
@@ -100,18 +100,18 @@
 
 ### Added
 
-- `parse_lectures_cache` 부분 조회 옵션 — `codes`/`subject_keys`/`category_prefixes`로 parsed를 추려 반환. `subject_groups`/`stats`는 전체 기준 유지, 기본값은 기존 동작 (SPR-87) (#55)
-- `load_lectures_cache` 부분 상세(codes) 옵션 — 시각화 등 필요한 강의 상세만 조회해 파일 스필 해소. 기본값은 기존 동작 (SPR-88) (#53)
+- `parse_lectures_cache` 부분 조회 옵션 — `codes`/`subject_keys`/`category_prefixes`로 parsed를 추려 반환. `subject_groups`/`stats`는 전체 기준 유지, 기본값은 기존 동작 (#55)
+- `load_lectures_cache` 부분 상세(codes) 옵션 — 시각화 등 필요한 강의 상세만 조회해 파일 스필 해소. 기본값은 기존 동작 (#53)
 
 ### Fixed
 
-- 로그인 타임아웃 시 "웹 로그인 폼이 브라우저에서 열렸다" 안내 추가 + 에이전트 무한 재시도 방지 절차 명문화 (SPR-85) (#52)
-- 재수강 타 학부 개설 확인 절차 명문화 — 캐시 범위 밖 개설 과목을 find_by_lecture로 직접 확인 (SPR-89) (#54)
+- 로그인 타임아웃 시 "웹 로그인 폼이 브라우저에서 열렸다" 안내 추가 + 에이전트 무한 재시도 방지 절차 명문화 (#52)
+- 재수강 타 학부 개설 확인 절차 명문화 — 캐시 범위 밖 개설 과목을 find_by_lecture로 직접 확인 (#54)
 
 ### Changed
 
-- check_timetable_conflicts 최소 필드 시 subject_key 자동 파생 경계 명시 — 분반이 아닌 별도 과목 오판 주의 (SPR-86) (#51)
-- target 필드 "(대상외수강제한)" 중복 표기 무시 지침 명시 (SPR-90) (#50)
+- check_timetable_conflicts 최소 필드 시 subject_key 자동 파생 경계 명시 — 분반이 아닌 별도 과목 오판 주의 (#51)
+- target 필드 "(대상외수강제한)" 중복 표기 무시 지침 명시 (#50)
 
 ## [1.2.0] - 2026-08-05
 
@@ -119,21 +119,21 @@
 
 ### Added
 
-- 대용량 MCP 도구 소형 응답 옵션 — `find_lectures(summary=True)`, `load_lectures_cache(include_lectures=False)`(그룹 메타·codes), `parse_lectures_cache(summary=True)`. 기본값은 기존 동작 유지 (SPR-76) (#44)
+- 대용량 MCP 도구 소형 응답 옵션 — `find_lectures(summary=True)`, `load_lectures_cache(include_lectures=False)`(그룹 메타·codes), `parse_lectures_cache(summary=True)`. 기본값은 기존 동작 유지 (#44)
 
 ### Changed
 
-- 교양선택 "전체" fetchTime 문서를 실측 기준으로 갱신 — 분야별 분산 호출(5~25회)보다 완전·안전하되, "1회 호출이 가볍다는 뜻은 아니다" 주의 명시 (SPR-77) (#41)
+- 교양선택 "전체" fetchTime 문서를 실측 기준으로 갱신 — 분야별 분산 호출(5~25회)보다 완전·안전하되, "1회 호출이 가볍다는 뜻은 아니다" 주의 명시 (#41)
 
 ### Fixed
 
-- `load_lectures_cache` 응답 count 의미 정리 — `count`=그룹 수, `total_lectures`=총 강의 수로 분리 (SPR-78) (#42)
-- 미개설 강의 조회를 빈 결과(count: 0)로 반환 — "No lecture found" 예외 제거 (SPR-79) (#45)
-- 교선 강의 동일 슬롯 중복 제거 — 파싱 단계 dedup + 충돌 검사 경고 (SPR-82) (#49)
-- 시각화 HTML 출력 경로를 캐시 디렉토리로 변경 — cwd/저장소 오염 방지, `CLAUDE_PLUGIN_DATA` 우선 (SPR-80) (#43)
-- 시각화 입력 JSON을 실행마다 유니크 임시 경로로 생성 — 고정 `/tmp` 경로 잔존 혼동 제거 (SPR-84) (#46)
-- 재수강 과목명 부분 매칭(contains) 폴백 + 개편 추정 안내 명문화 — 개편으로 이름이 바뀐 과목의 미개설 오판 방지 (SPR-81) (#47)
-- check_timetable_conflicts 최소 필드 허용 — 도구 설명에 필수/선택 필드 명시 (SPR-83) (#48)
+- `load_lectures_cache` 응답 count 의미 정리 — `count`=그룹 수, `total_lectures`=총 강의 수로 분리 (#42)
+- 미개설 강의 조회를 빈 결과(count: 0)로 반환 — "No lecture found" 예외 제거 (#45)
+- 교선 강의 동일 슬롯 중복 제거 — 파싱 단계 dedup + 충돌 검사 경고 (#49)
+- 시각화 HTML 출력 경로를 캐시 디렉토리로 변경 — cwd/저장소 오염 방지, `CLAUDE_PLUGIN_DATA` 우선 (#43)
+- 시각화 입력 JSON을 실행마다 유니크 임시 경로로 생성 — 고정 `/tmp` 경로 잔존 혼동 제거 (#46)
+- 재수강 과목명 부분 매칭(contains) 폴백 + 개편 추정 안내 명문화 — 개편으로 이름이 바뀐 과목의 미개설 오판 방지 (#47)
+- check_timetable_conflicts 최소 필드 허용 — 도구 설명에 필수/선택 필드 명시 (#48)
 
 ## [1.1.0] - 2026-08-05
 
@@ -141,17 +141,17 @@
 
 ### Added
 
-- find_lectures 서버 측 캐시 자동 저장 — fetch 시점에 결과를 즉시 그룹 병합 저장. LLM이 거대 응답을 컨텍스트로 통과시켜 취합/저장할 필요가 없어짐 (SPR-75) (#40)
-- 강의 캐시 그룹 키 규칙 고정 — `major_<collage>_<department>`, `optional_elective_all` 등 서버가 자동 생성 (SPR-75) (#40)
+- find_lectures 서버 측 캐시 자동 저장 — fetch 시점에 결과를 즉시 그룹 병합 저장. LLM이 거대 응답을 컨텍스트로 통과시켜 취합/저장할 필요가 없어짐 (#40)
+- 강의 캐시 그룹 키 규칙 고정 — `major_<collage>_<department>`, `optional_elective_all` 등 서버가 자동 생성 (#40)
 
 ### Changed
 
-- `save_lectures_cache` 도구 제거 — find_lectures 자동 저장으로 대체. 캐시 저장을 덮어쓰기에서 그룹 병합으로 전환 (SPR-75) (#40)
+- `save_lectures_cache` 도구 제거 — find_lectures 자동 저장으로 대체. 캐시 저장을 덮어쓰기에서 그룹 병합으로 전환 (#40)
 
 ### Fixed
 
-- 채플 요건 충족 시 인터뷰 채플 질문 스킵 (SPR-73) (#38)
-- 채플 1학년 2학기 오라우팅 — `profile.grade`(PT-87 +1학기 보정)와 무관하게 실제 학년(`actual_grade`) 기준으로 분기 (SPR-71) (#39)
+- 채플 요건 충족 시 인터뷰 채플 질문 스킵 (#38)
+- 채플 1학년 2학기 오라우팅 — `profile.grade`(PT-87 +1학기 보정)와 무관하게 실제 학년(`actual_grade`) 기준으로 분기 (#39)
 
 ## [1.0.0] - 2026-08-05
 

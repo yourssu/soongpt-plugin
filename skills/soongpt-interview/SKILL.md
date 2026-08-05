@@ -21,7 +21,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 ### 1. 프로필/수강이력 확인
 - `get_user_profile()` 호출
 - 반환 `profile`이 `null`이거나 **핵심 필드(`department`/`college`/`grade`/`entered_year` 중 하나라도)**가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보). **`grade`는 3-B-1 채플 분기에 필수**(실제로는 `actual_grade` 우선, 없으면 `grade` 폴백)이므로 반드시 채운다 — 비면 `set_user_profile("grade", ...)`로 입력받는다.
-- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발, SPR-85):
+- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발):
   1. 사용자에게 "브라우저의 **웹 로그인 폼에서 로그인** 후 다시 시도해 달라"고 안내
   2. 사용자가 로그인을 마쳤다고 확인하면 `get_usaint_snapshot()`을 **한 번** 다시 호출 (재시도 시 로그인 폼이 새로 열림)
   3. 그래도 실패하면 자동 재시도를 반복하지 않고, 사용자에게 상태를 알린 뒤 중단
@@ -145,7 +145,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 **3-B-1. 채플** (매 학기 정기 수강 — 졸업 요건 신입 6회·편입 상이) — 실제 학년에 따라 흐름이 다르다:
 
-> **실제 학년으로 종류가 갈린다** (composer/fetch와 동일 기준): `actual_grade==1` → **소그룹채플**(자기 학과 분반이 사실상 고정), `actual_grade>=2` → **비전채플**(단과대 그룹 단위 대상). 실제 학년 불명이면 비전채플 흐름으로. `profile.actual_grade`(보정 전 실제 학년)가 없으면 `profile.grade`로 폴백 — 단 `profile.grade`는 PT-87 임시 보정(+1학기)이 섞여 1학년 2학기 학생을 2로 올릴 수 있으므로(SPR-71) `actual_grade` 우선. **폴백 시 `profile.grade == 2`면 1학년 2학기 가능성이 있으니** 사용자에게 현재 학년을 확인한다.
+> **실제 학년으로 종류가 갈린다** (composer/fetch와 동일 기준): `actual_grade==1` → **소그룹채플**(자기 학과 분반이 사실상 고정), `actual_grade>=2` → **비전채플**(단과대 그룹 단위 대상). 실제 학년 불명이면 비전채플 흐름으로. `profile.actual_grade`(보정 전 실제 학년)가 없으면 `profile.grade`로 폴백 — 단 `profile.grade`는 PT-87 임시 보정(+1학기)이 섞여 1학년 2학기 학생을 2로 올릴 수 있으므로 `actual_grade` 우선. **폴백 시 `profile.grade == 2`면 1학년 2학기 가능성이 있으니** 사용자에게 현재 학년을 확인한다.
 
 **0단계 — 졸업 요건 충족 여부 확인** (제일 먼저):
 
@@ -193,7 +193,7 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 **3-D. 취향 질문**:
 
 - 진입 절차(1단계)에서 `get_usaint_snapshot()`이 확보한 스냅샷 캐시의 `lowGradeSubjectCodes`(C 이하 재수강 후보)와 `subjectNames`(코드→강의명 매핑)를 확인한다. 스냅샷이 아직 없으면 `get_usaint_snapshot()`을 호출해 확보. 호출 실패하거나 후보가 없으면 그냥 아래 기본 질문으로 진행.
-  - `subjectNames`는 이제 별도 저장 필드가 아니라 `takenCourses.subjects`(코드+강의명 인라인)에서 자동 파생되는 응답 필드(SPR-47). 실제 수강한 과목만 들어 있어, 재수강 대체과목 추천 코드처럼 수강 이력이 없는 코드는 매핑에 없다.
+  - `subjectNames`는 이제 별도 저장 필드가 아니라 `takenCourses.subjects`(코드+강의명 인라인)에서 자동 파생되는 응답 필드. 실제 수강한 과목만 들어 있어, 재수강 대체과목 추천 코드처럼 수강 이력이 없는 코드는 매핑에 없다.
 - **재수강 후보가 있을 때**: 구체적으로 짚어 물어봄.
   > "너 C 이하 받은 과목 중에 {subjectNames로 변환한 과목명 목록}이 있던데, 이 중에 재수강 생각 있는 거 있어? 없으면 그냥 넘어가도 돼."
   - `subjectNames`에 이름이 없는 코드(대체과목 추천 코드 등)는 코드 그대로 표시 (폴백)
@@ -230,4 +230,4 @@ description: 숭실대 시간표 인터뷰 — 이번 학기 전략/선호를 3�
 
 - 프로필/수강이력은 학기별 스냅샷(`snapshot_{year}_{semester}.json`), 졸업사정표는 단일 캐시(`graduation.json`)
 - 인터뷰 결과는 후속 단계(들을 수 있는 과목 통합 조회, 시간표 후보 생성)의 주요 입력
-- 재수강 후보 확인(`subject_preferences` 3-D)은 `get_usaint_snapshot()`이 저장한 스냅샷 캐시의 `lowGradeSubjectCodes`/`subjectNames`(SPR-40, SPR-46, SPR-47) 사용 — 진입 절차에서 확보된 캐시를 재사용하며, 캐시가 없을 때만 `get_usaint_snapshot()` 호출. `subjectNames`는 SPR-47부터 `takenCourses.subjects`에서 자동 파생(별도 저장 X)되며, 대체과목 코드는 매핑에 없어 코드 폴백.
+- 재수강 후보 확인(`subject_preferences` 3-D)은 `get_usaint_snapshot()`이 저장한 스냅샷 캐시의 `lowGradeSubjectCodes`/`subjectNames` 사용 — 진입 절차에서 확보된 캐시를 재사용하며, 캐시가 없을 때만 `get_usaint_snapshot()` 호출. `subjectNames`는 이제 `takenCourses.subjects`에서 자동 파생(별도 저장 X)되며, 대체과목 코드는 매핑에 없어 코드 폴백.
