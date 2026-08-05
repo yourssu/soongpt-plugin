@@ -20,8 +20,8 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 ### 1. 프로필 확인 (필수)
 
 - `get_user_profile()` 호출
-- `profile == null`이거나 필수 필드가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보). **snapshot을 실제로 호출하기 전에** 사용자에게 "브라우저에 유세인트 로그인 창이 뜰 수 있어요" **사전 안내**를 전달한다 (SPR-115) — 프로필이 이미 채워져 snapshot을 호출하지 않으면 안내 불필요. 아래 SPR-85(실패 시 "창이 뜬 뒤" 대응)와 보완 관계
-- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발, SPR-85):
+- `profile == null`이거나 필수 필드가 비면 `get_usaint_snapshot()` 호출 (USAINT 세션 필요 — 최초엔 브라우저 로그인 폼 자동 오픈. 프로필+수강이력을 한 번에 확보). **snapshot을 실제로 호출하기 전에** 사용자에게 "브라우저에 유세인트 로그인 창이 뜰 수 있어요" **사전 안내**를 전달한다 — 프로필이 이미 채워져 snapshot을 호출하지 않으면 안내 불필요. 아래 실패 시 "창이 뜬 뒤" 대응과 보완 관계
+- **`get_usaint_snapshot()`이 로그인 필요/타임아웃 에러로 실패하면**: 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발):
   1. 사용자에게 "브라우저의 **웹 로그인 폼에서 로그인** 후 다시 시도해 달라"고 안내
   2. 사용자가 로그인을 마쳤다고 확인하면 `get_usaint_snapshot()`을 **한 번** 다시 호출 (재시도 시 로그인 폼이 새로 열림)
   3. 그래도 실패하면 자동 재시도를 반복하지 않고, 사용자에게 상태를 알린 뒤 중단
@@ -39,7 +39,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   - `"cache"`: 캐시 히트. **5번(다음 단계 안내)으로 바로 이동**
   - `"stale"`: 7일 경과. 3번으로 (사용자에게 "새로고침?" 물어볼지, 그냥 stale라도 쓸지 선택)
   - `"miss"`: 파일 없음. 3번으로
-- `include_lectures=False` (SPR-76): 이 호출은 캐시 히트 여부만 확인하면 되므로 그룹 메타(카테고리·count·error·codes)만 받는다. 상세 강의는 3번 fetch가 서버에 저장하고, 3-D/4번에서 같은 메타 모드로 재확인한다.
+- `include_lectures=False`: 이 호출은 캐시 히트 여부만 확인하면 되므로 그룹 메타(카테고리·count·error·codes)만 받는다. 상세 강의는 3번 fetch가 서버에 저장하고, 3-D/4번에서 같은 메타 모드로 재확인한다.
 
 사용자가 트리거에서 "새로" / "갱신" 뉘앙스를 포함했으면 source와 무관하게 3번으로.
 
@@ -52,18 +52,18 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 `find_lectures`를 **4개 초과**로 쏴야 하는 구간(주로 **3-B 교양 전체**; 3-A·3-C는 한 묶음에 다 들어오므로 그냥 한 번에 병렬)에서는 **한 번에 약 4개씩 묶음**으로 병렬 호출하고, 한 묶음이 끝나면 다음 묶음을 쏜다.
 
 - **왜**: USAINT 포털(WebDynpro)이 같은 SSO 세션의 동시 요청을 서버에서 순차 처리한다. 18개를 한 번에 쏘면 마지막 것이 ~30초 대기하다 HTTP 타임아웃·WebDynpro 에러·SSO 세션 끊김 위험.
-- **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다(SPR-67). 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
+- **안전장치**: 서버가 `find_lectures`/`list_required_electives`/`list_optional_elective_categories`의 동시 송출을 **공유 Semaphore로 4개(기본값, `SOONGPT_COURSE_SCHEDULE_CONCURRENCY`로 조정)로 강제 제한**한다. 그래서 4개를 넘게 한 번에 쏴도 자동으로 대기열에 들어가 **안전**은 하다.
 - **그런데도 묶음 단위가 낫다**: 묶음 단위로 쏘면 대기열을 거치지 않아 총 시간이 약간 줄고, 결과도 묶음별로 모아 처리하기 쉽다. 아래 "N회 병렬" 표기는 이 **~4개 묶음** 단위로 그룹화해 실행할 것. `list_required_electives`는 1회씩이므로 묶음 대상이 아님 (각 맨 앞 묶음에 포함해 같이 쏘면 된다).
 
-#### 3-0b. 서버 측 자동 저장 (SPR-75) — 별도 save 불필요
+#### 3-0b. 서버 측 자동 저장 — 별도 save 불필요
 
 `find_lectures`는 기본(`save_to_cache=True`)으로 **fetch 시점에 서버가 결과를 캐시에 즉시 그룹 저장**한다. 그래서:
 
 - **취합 → save_lectures_cache 호출이 없다.** `save_lectures_cache` 도구는 제거됨. fetch가 끝나면 그 그룹은 이미 캐시에 들어 있다.
 - **그룹 키도 서버가 자동 생성**한다 (아래 각 카테고리의 `groups["..."]` 표기는 자동 생성될 키 안내 — 스킬이 직접 키를 정하지 않는다).
-- **모든 fetch는 `summary=True`를 붙인다** (SPR-76). 서버가 응답에서 lectures 상세를 생략하고 `count`/`fetchTime`/`_cache`(group_key/saved)만 반환한다 — 컨텍스트를 크게 아낀다. 결과는 이미 캐시에 저장되므로 상세가 필요하면 `load_lectures_cache(year, semester)`(기본 상세)로 재조회하면 된다. **예외: `find_by_lecture`/`find_by_professor` 확인용 조회는 summary 여부와 무관하게 서버가 항상 상세(lectures 포함)를 반환한다** (SPR-110) — 검색 결과의 code·시간을 직접 읽는 게 목적이라 요약 모드가 없다. **특정 강의 몇 개만 상세가 필요하면 `load_lectures_cache(year, semester, codes=[...], include_groups=False)`(SPR-88/SPR-92)로 해당 강의만 받는다** — 전체 상세(최대 673KB) 대신 후보 몇 개만 컨텍스트에 올라 파일 스필을 막고, 그룹 메타(~30-40KB)도 생략한다. 특히 교양선택 "전체"(약 337강의)는 요약 모드 없이는 응답이 ~220KB에 달하므로 반드시 `summary=True`다.
+- **모든 fetch는 `summary=True`를 붙인다**. 서버가 응답에서 lectures 상세를 생략하고 `count`/`fetchTime`/`_cache`(group_key/saved)만 반환한다 — 컨텍스트를 크게 아낀다. 결과는 이미 캐시에 저장되므로 상세가 필요하면 `load_lectures_cache(year, semester)`(기본 상세)로 재조회하면 된다. **예외: `find_by_lecture`/`find_by_professor` 확인용 조회는 summary 여부와 무관하게 서버가 항상 상세(lectures 포함)를 반환한다** — 검색 결과의 code·시간을 직접 읽는 게 목적이라 요약 모드가 없다. **특정 강의 몇 개만 상세가 필요하면 `load_lectures_cache(year, semester, codes=[...], include_groups=False)`로 해당 강의만 받는다** — 전체 상세(최대 673KB) 대신 후보 몇 개만 컨텍스트에 올라 파일 스필을 막고, 그룹 메타(~30-40KB)도 생략한다. 특히 교양선택 "전체"(약 337강의)는 요약 모드 없이는 응답이 ~220KB에 달하므로 반드시 `summary=True`다.
 - **실패 카테고리는 예외가 그대로 온다** (연계/융합처럼 한쪽 실패가 정상인 경우 포함). 예외 후에는 `load_lectures_cache(year, semester, include_lectures=False)`로 해당 그룹의 `error` 필드를 확인해 재조회 여부를 판단한다. (기존 성공 그룹이 있으면 error 그룹으로 대체되지 않으니 데이터는 보존된다. `_cache.saved=False`는 "확인용 조회라 저장을 건너뜀"의 경우다.)
-- **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다. **응답은 summary 여부와 무관하게 항상 상세다 (SPR-110)** — 서버가 확인용 조회의 요약 모드를 무시하고 lectures(code)를 반환한다. 캐시 저장은 안 되지만 검색 결과에서 code·시간을 직접 읽는다.
+- **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다. **응답은 summary 여부와 무관하게 항상 상세다** — 서버가 확인용 조회의 요약 모드를 무시하고 lectures(code)를 반환한다. 캐시 저장은 안 되지만 검색 결과에서 code·시간을 직접 읽는다.
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
@@ -186,7 +186,7 @@ find_lectures(year, semester, category_type="optional_elective",
                     lecture_name="비전채플", summary=True)
       ```
   → 서버가 `groups["chapel"]` 키로 자동 저장 (단일 그룹 — 호출한 한 종류만 담김)
-  - **왜 actual_grade인가**: `profile.grade`는 PT-87 임시 보정(+1학기)이 들어가 1학년 2학기 학생이 grade=2로 올라 비전채플로 오라우팅될 수 있다 (SPR-71). 채플은 1학년 전체(1학기/2학기 절반씩)가 소그룹채플이므로 **보정 전 실제 학년**으로 분기한다.
+  - **왜 actual_grade인가**: `profile.grade`는 PT-87 임시 보정(+1학기)이 들어가 1학년 2학기 학생이 grade=2로 올라 비전채플로 오라우팅될 수 있다. 채플은 1학년 전체(1학기/2학기 절반씩)가 소그룹채플이므로 **보정 전 실제 학년**으로 분기한다.
   - **actual_grade 불명 폴백 = 비전채플**: actual_grade는 보통 프로필(`get_user_profile().actual_grade`)에 있지만 구버전 데이터/수동 입력 등으로 없을 수 있다. 이때 `profile.grade`로 폴백하되, **`profile.grade == 2`면 PT-87 보정(+1학기)으로 1학년 2학기 학생이 2로 올라간 것일 수 있다** (2학년 1학기와 구분 불가). 스냅샷 새로고침(`get_usaint_snapshot`)으로 actual_grade를 확보하거나, 안 되면 사용자에게 현재 학년을 확인한다. 그것도 안 되면 기존 다수 사용자(2학년+) 기본값인 비전채플로.
   - **채플 종류의 데이터 격리**: actual_grade==1이면 캐시 `chapel`엔 소그룹채플만, actual_grade>=2면 비전채플만 들어간다. composer는 실제 학년에 맞는 한 종류만 있다고 가정하고 동작한다. (다른 채플명으로 재fetch하면 서버가 기존 chapel 그룹을 대체한다)
   - 사용자가 특정 채플명(예: "한국인채플")을 명시하면 실제 학년 무관 그 이름으로 조회.
@@ -227,7 +227,7 @@ fetch가 끝나면 각 그룹은 **이미 서버가 캐시에 저장**했다. �
 `load_lectures_cache(year, semester, include_lectures=False)`로 저장된 groups 메타를
 확인하고 사용자에게:
 - 총 강의 수 = 응답의 **`total_lectures`** 필드 (모든 groups의 count 합). 응답의 최상위
-  `count`는 **그룹 수**(len(groups))이므로 총 강의 수와 혼동하지 않는다 (SPR-78).
+  `count`는 **그룹 수**(len(groups))이므로 총 강의 수와 혼동하지 않는다.
 - 카테고리별 count = 각 그룹의 `count` (예: "주전공 45건, 타전공인정 12건, 교양선택 337건(전 학번 분야 포함), 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
 - `error`가 있는 실패 카테고리 있으면 표시 (연계/융합 정상 실패 한쪽 포함)
 

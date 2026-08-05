@@ -26,13 +26,13 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 |---|---|---|---|
 | 학적/졸업 | `get_usaint_snapshot` | 학적정보, 학기별 수강과목(코드+강의명 subjects 인라인), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시 + 프로필 자동 저장) | 직접 — "내 수강정보 가져와", "재수강 후보 뭐 있어" |
 | 학적/졸업 | `get_graduation_status` | 졸업요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시) | 직접 — "졸업요건 확인해줘", "몇 학점 남았어" |
-| 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색. 기본 `save_to_cache=True`로 결과를 캐시에 자동 그룹 저장 (SPR-75). `summary=True`면 lectures 상세 생략 (SPR-76) — 단 `find_by_lecture`/`find_by_professor`는 summary 무시하고 항상 상세 (SPR-110) | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
+| 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색. 기본 `save_to_cache=True`로 결과를 캐시에 자동 그룹 저장. `summary=True`면 lectures 상세 생략 — 단 `find_by_lecture`/`find_by_professor`는 summary 무시하고 항상 상세 | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
 | 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
-| 강의캐시 | `load_lectures_cache` | 통합 조회한 강의 목록 캐시 로드 (7일 TTL — 저장은 `find_lectures`가 서버 측 자동). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | `soongpt-available-lectures` 내부에서 사용 |
-| 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사. `summary=True`면 parsed 생략, `codes`/`subject_keys`/`category_prefixes`로 부분 조회 (SPR-76/SPR-87), `include_subject_groups=False`면 subject_groups 생략 (SPR-95) | `soongpt-timetable-composer` 내부에서 사용 |
-| 시간표 파싱 | `list_optional_elective_candidates` | 교선 컴팩트 후보 전용 조회 — `parse_lectures_cache`의 교선+entered_year+컴팩트+상한150+subject_groups 제외 조합을 시그니처에 고정 (SPR-112) | `soongpt-timetable-composer` 3단계(교선)에서 사용 |
-| 시간표 파싱 | `get_lecture_details` | codes 부분 상세 전용 조회 — `parse_lectures_cache`의 codes+subject_groups 제외 조합을 시그니처에 고정 (SPR-112). 캐시에 없는 code는 제외 | `soongpt-timetable-composer` 3단계(후보 상세)에서 사용 |
+| 강의캐시 | `load_lectures_cache` | 통합 조회한 강의 목록 캐시 로드 (7일 TTL — 저장은 `find_lectures`가 서버 측 자동). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 | `soongpt-available-lectures` 내부에서 사용 |
+| 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사. `summary=True`면 parsed 생략, `codes`/`subject_keys`/`category_prefixes`로 부분 조회, `include_subject_groups=False`면 subject_groups 생략 | `soongpt-timetable-composer` 내부에서 사용 |
+| 시간표 파싱 | `list_optional_elective_candidates` | 교선 컴팩트 후보 전용 조회 — `parse_lectures_cache`의 교선+entered_year+컴팩트+상한150+subject_groups 제외 조합을 시그니처에 고정 | `soongpt-timetable-composer` 3단계(교선)에서 사용 |
+| 시간표 파싱 | `get_lecture_details` | codes 부분 상세 전용 조회 — `parse_lectures_cache`의 codes+subject_groups 제외 조합을 시그니처에 고정. 캐시에 없는 code는 제외 | `soongpt-timetable-composer` 3단계(후보 상세)에서 사용 |
 | 시간표 후보 | `load_timetable_candidates` / `save_timetable_candidate` / `clear_timetable_candidates` | 조합한 후보 로드/저장(같은 name replace, code 검증)/삭제 | `soongpt-timetable-composer` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
@@ -50,7 +50,7 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 
 ### 1. 온보딩 (최초 1회)
 
-- "시간표 짜자" 같은 전체 흐름 진입 시 `soongpt-timetable-builder`가 `get_usaint_snapshot()`을 호출해 **프로필과 수강이력을 한 번에 확보**한다. USAINT가 채우는 단과대까지 자동 확보되며(SPR-55), 그래도 비는 학번/이름/트랙은 필요할 때 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다.
+- "시간표 짜자" 같은 전체 흐름 진입 시 `soongpt-timetable-builder`가 `get_usaint_snapshot()`을 호출해 **프로필과 수강이력을 한 번에 확보**한다. USAINT가 채우는 단과대까지 자동 확보되며, 그래도 비는 학번/이름/트랙은 필요할 때 사용자에게 직접 물어 `set_user_profile(field, value)`로 입력받는다.
 - 이때 USAINT 세션이 없으면 자동 로그인 흐름이 뜬다 (아래 [자동 로그인 흐름](#자동-로그인-흐름) 참고).
 - 휴학/복학/전과 후에는 "프로필 업데이트해줘"라고 하면 `refresh_user_profile(preserve_user_overrides=True)`로 USAINT 쪽 필드만 새로고침하고, 사용자가 직접 입력한 값은 보존한다.
 - `set_user_profile`은 **사용자가 명시적으로 프로필 수정을 요청했을 때만** 사용한다.
@@ -89,7 +89,7 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 - 브라우저 폼에 학번/uSaint 비밀번호를 입력해 제출하면 인증 성공 후 세션이 OS 키체인에 저장되고, 원래 요청이 갱신된 세션으로 자동 재실행되어 결과가 돌아온다.
 - 학번/비밀번호는 어디에도 저장되지 않고 인증 직후 메모리에서 삭제된다. 디스크에 남는 건 세션 토큰뿐이며 그마저도 OS 키체인에만 저장된다.
 - 세션 만료(보통 1~2시간) 시에도 동일하게 자동 재로그인이 진행된다.
-- 세션 필요 도구가 **로그인 필요/타임아웃 에러**를 반환하면(예: `get_usaint_snapshot` 실패), 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발, SPR-85):
+- 세션 필요 도구가 **로그인 필요/타임아웃 에러**를 반환하면(예: `get_usaint_snapshot` 실패), 시스템 오류가 아니라 **사용자 로그인 절차**다. 같은 조회를 자동으로 반복 재시도하지 말 것 (LLM 무한 재시도 유발):
   1. 사용자에게 "브라우저의 **웹 로그인 폼에서 로그인** 후 다시 시도해 달라"고 안내
   2. 사용자가 로그인을 마쳤다고 확인하면 같은 조회를 **한 번** 다시 호출 (재시도 시 로그인 폼이 새로 열림)
   3. 그래도 실패하면 자동 재시도를 반복하지 않고, 사용자에게 상태를 알린 뒤 중단
