@@ -39,6 +39,7 @@ from .interview import (
 )
 from .lectures_cache import (
     LectureGroupEntry,
+    LecturesCache,
     group_key_for,
     is_lectures_cache_fresh,
     save_lectures_group,
@@ -580,9 +581,64 @@ def _lecture_group_meta(entry: LectureGroupEntry) -> dict[str, Any]:
     }
 
 
+def _load_lectures_cache_partial(
+    cache: LecturesCache,
+    codes: list[str],
+    source: str,
+    cached_at: datetime,
+    age_days: int | None,
+) -> dict:
+    """codes 필터 모드 응답 (SPR-88).
+
+    요청 code들에 해당하는 강의 dict만 전 그룹에서 모아 flat ``lectures``로
+    반환하고, ``groups``는 메타(``_lecture_group_meta``)로 축소한다 — 시각화처럼
+    확정 후보 몇 개의 상세만 필요할 때 673KB 전체 상세 대신 수 KB만 컨텍스트에
+    올린다. ``codes``는 응답에 그대로 담아 호출자가 어떤 필터를 썼는지 확인할
+    수 있게 하고, 캐시에 없는 code는 ``unmatched_codes``로 보고한다. 동일 code가
+    여러 그룹에 있으면 최초 항목만 유지한다 (render_timetable.py의 dedup과 일치).
+    """
+    wanted = {str(c) for c in codes}
+    matched: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in cache.groups.values():
+        for lecture in group.lectures:
+            code = lecture.get("code")
+            if code is None:
+                continue
+            key = str(code)
+            if key not in wanted or key in seen:
+                continue
+            seen.add(key)
+            matched.append(_jsonify(lecture))
+    unmatched = [c for c in codes if c not in seen]
+    return {
+        "year": cache.year,
+        "semester": cache.semester,
+        "groups": {
+            key: _lecture_group_meta(entry)
+            for key, entry in cache.groups.items()
+        },
+        "lectures": matched,
+        "count": len(cache.groups),
+        "include_lectures": True,
+        "codes": list(codes),
+        "matched_count": len(matched),
+        "unmatched_codes": unmatched,
+        "total_lectures": total_lectures_count(cache),
+        "_cache": {
+            "source": source,
+            "cached_at": cached_at.isoformat(),
+            "age_days": age_days,
+        },
+    }
+
+
 @mcp.tool()
 async def load_lectures_cache(
-    year: int, semester: str, include_lectures: bool = True
+    year: int,
+    semester: str,
+    include_lectures: bool = True,
+    codes: list[str] | None = None,
 ) -> dict:
     """저장된 강의 캐시 로드. 스킬 진입 시 가장 먼저 호출해 캐시 히트 여부 확인.
 
@@ -597,18 +653,42 @@ async def load_lectures_cache(
     그룹 강의 code 목록이라 그룹 단위 code 집합(예: chapel 채플 식별)이 필요한
     소비자는 메타 모드로도 충분하다.
 
+    codes(선택, SPR-88): **부분 상세 모드** — 지정한 강의 code들만 상세 lecture
+    dict로 반환한다. 전 그룹에서 code 매칭 강의를 모아 flat ``lectures`` 배열로
+    주고 ``groups``는 메타로 축소해 응답을 대폭 줄인다 (673KB → 수 KB). 시각화
+    단계처럼 확정 후보 몇 개의 상세만 필요한 경우 사용. ``codes`` 지정 시
+    ``include_lectures``와 무관하게 상세를 반환한다. 캐시에 없는 code는
+    ``unmatched_codes``로 보고한다 (후보 code는 save_timetable_candidate가 이미
+    캐시 존재 검증하므로 정상 흐름에선 비어야 한다).
+
     학기(semester): "1" | "2" | "summer" | "winter"
 
     반환: { year, semester, groups: {group_key: {category_type, params, lectures, count, error}},
             count, include_lectures, total_lectures, _cache: {source, cached_at, age_days} }
+          + codes 지정 시: lectures, matched_count, unmatched_codes 추가
     - `count` = **그룹 수** (len(groups)). 다른 도구들의 count 관례와 동일.
     - `total_lectures` = **총 강의 수** (모든 groups의 count 합, SPR-78).
       요약 표시/판단은 이 필드를 쓴다. error 그룹은 count=0이라 합산에서 제외.
-    - `include_lectures` = 이번 호출의 메타 모드 여부 (SPR-76).
+    - `include_lectures` = 이번 호출의 메타 모드 여부 (SPR-76). codes 지정 시 True.
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
     if cache is None or cached_at is None:
+        if codes is not None:
+            # miss여도 필터 모드 응답 형태를 유지해 호출자가 일관되게 소비하게 한다.
+            return {
+                "year": year,
+                "semester": semester,
+                "groups": {},
+                "count": 0,
+                "include_lectures": True,
+                "total_lectures": 0,
+                "lectures": [],
+                "codes": list(codes),
+                "matched_count": 0,
+                "unmatched_codes": list(codes),
+                "_cache": {"source": "miss", "cached_at": None, "age_days": None},
+            }
         return {
             "year": year,
             "semester": semester,
@@ -621,6 +701,10 @@ async def load_lectures_cache(
 
     age_days = (now - cached_at).days
     source = "cache" if is_lectures_cache_fresh(cached_at, now) else "stale"
+    if codes is not None:
+        return _load_lectures_cache_partial(
+            cache, codes, source=source, cached_at=cached_at, age_days=age_days
+        )
     if include_lectures:
         groups: dict[str, Any] = _jsonify(cache.groups)
     else:

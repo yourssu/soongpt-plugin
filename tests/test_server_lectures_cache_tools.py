@@ -134,6 +134,116 @@ async def test_load_lectures_cache_miss_meta_mode() -> None:
     assert resp["include_lectures"] is False
 
 
+# ── load_lectures_cache codes 필터 (SPR-88) ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_returns_only_matching() -> None:
+    """codes 지정 → 매칭 강의 dict만 flat lectures로, groups는 메타 축소."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(
+        2026, "1", codes=["CS10101", "2150078502"]
+    )
+
+    assert resp["include_lectures"] is True
+    assert [lect["code"] for lect in resp["lectures"]] == ["CS10101", "2150078502"]
+    # lecture dict는 원본(find_lectures 형식) 그대로 — schedule_room 보존
+    assert resp["lectures"][0]["schedule_room"].startswith("월")
+    assert resp["matched_count"] == 2
+    assert resp["unmatched_codes"] == []
+    assert resp["codes"] == ["CS10101", "2150078502"]
+    # groups는 메타로 축소 — lectures 상세 없음 (병목 해결 핵심)
+    assert "lectures" not in resp["groups"]["major_IT대학_컴퓨터학부"]
+    assert resp["groups"]["major_IT대학_컴퓨터학부"]["codes"] == [
+        "CS10101",
+        "CS10201",
+    ]
+    assert resp["count"] == 4  # 그룹 수 관례 유지
+    assert resp["total_lectures"] == 4
+    assert resp["_cache"]["source"] == "cache"
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_cross_group_order() -> None:
+    """코드가 여러 그룹에 걸쳐 있어도 캐시 순서대로 flat 수집."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(
+        2026, "1", codes=["2150078501", "CS10201"]
+    )
+
+    # 캐시 그룹 순서(major → chapel)대로 매칭
+    assert [lect["code"] for lect in resp["lectures"]] == ["CS10201", "2150078501"]
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_unmatched_reported() -> None:
+    """캐시에 없는 code는 unmatched_codes로 보고 (응답은 성공 유지)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(2026, "1", codes=["CS10101", "XXXX"])
+
+    assert [lect["code"] for lect in resp["lectures"]] == ["CS10101"]
+    assert resp["unmatched_codes"] == ["XXXX"]
+    assert resp["matched_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_dedups_cross_group() -> None:
+    """같은 code가 여러 그룹에 있어도 최초 항목만 유지 (renderer dedup 일치)."""
+    cache = _build_cache()
+    cache.groups["chapel"].lectures.append(
+        {"code": "CS10101", "name": "중복사본", "schedule_room": "금 09:00-10:00"}
+    )
+    cache_mod.save_lectures_cache(cache)
+
+    resp = await server.load_lectures_cache(2026, "1", codes=["CS10101"])
+
+    assert len(resp["lectures"]) == 1
+    assert resp["lectures"][0]["name"] == "컴퓨터개론"  # major 그룹 최초 항목 유지
+    assert resp["matched_count"] == 1
+    assert resp["unmatched_codes"] == []
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_empty() -> None:
+    """codes=[] → lectures 비움 (유효 입력)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(2026, "1", codes=[])
+
+    assert resp["lectures"] == []
+    assert resp["matched_count"] == 0
+    assert resp["unmatched_codes"] == []
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_codes_miss_shape() -> None:
+    """miss + codes → 빈 lectures + 전체 codes를 unmatched로 (일관된 형태)."""
+    resp = await server.load_lectures_cache(2026, "2", codes=["CS10101"])
+
+    assert resp["_cache"]["source"] == "miss"
+    assert resp["lectures"] == []
+    assert resp["codes"] == ["CS10101"]
+    assert resp["include_lectures"] is True  # codes 모드는 상세 반환 의미 (SPR-88)
+    assert resp["matched_count"] == 0
+    assert resp["unmatched_codes"] == ["CS10101"]
+
+
+@pytest.mark.asyncio
+async def test_load_lectures_cache_default_no_codes_keys() -> None:
+    """기본 호출엔 codes 필터 키가 없다 (하위 호환, 응답 스키마 불변)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.load_lectures_cache(2026, "1")
+
+    assert "lectures" not in resp
+    assert "codes" not in resp
+    assert "matched_count" not in resp
+    assert "unmatched_codes" not in resp
+
+
 # ── find_lectures summary ──────────────────────────────────────────────────
 
 _FAKE_RESULT = {
