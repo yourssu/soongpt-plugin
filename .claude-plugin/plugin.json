@@ -1,6 +1,6 @@
 {
   "name": "soongpt",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Claude Code/Codex plugin (MCP server + skills) for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements",
   "author": { "name": "soongpt-plugin contributors" },
   "repository": "https://github.com/yourssu/soongpt-plugin",

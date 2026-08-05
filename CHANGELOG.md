@@ -7,9 +7,24 @@
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-05
+
+개선 워크플로우 2차 (Iteration 3·3.5 실측 기반) — 대용량 응답 잔여 병목(parse 1MB/load 673KB) 해소, 로그인 실패 안내 개선, 재수강 경계 케이스 명문화.
+
 ### Added
 
 - `parse_lectures_cache` 부분 조회 옵션 — `codes`/`subject_keys`/`category_prefixes`로 parsed를 추려 반환. `subject_groups`/`stats`는 전체 기준 유지, 기본값은 기존 동작 (SPR-87) (#55)
+- `load_lectures_cache` 부분 상세(codes) 옵션 — 시각화 등 필요한 강의 상세만 조회해 파일 스필 해소. 기본값은 기존 동작 (SPR-88) (#53)
+
+### Fixed
+
+- 로그인 타임아웃 시 "웹 로그인 폼이 브라우저에서 열렸다" 안내 추가 + 에이전트 무한 재시도 방지 절차 명문화 (SPR-85) (#52)
+- 재수강 타 학부 개설 확인 절차 명문화 — 캐시 범위 밖 개설 과목을 find_by_lecture로 직접 확인 (SPR-89) (#54)
+
+### Changed
+
+- check_timetable_conflicts 최소 필드 시 subject_key 자동 파생 경계 명시 — 분반이 아닌 별도 과목 오판 주의 (SPR-86) (#51)
+- target 필드 "(대상외수강제한)" 중복 표기 무시 지침 명시 (SPR-90) (#50)
 
 ## [1.2.0] - 2026-08-05
 
