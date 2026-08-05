@@ -263,7 +263,7 @@ async def test_parse_lectures_cache_summary_omits_parsed() -> None:
     resp = await server.parse_lectures_cache(2026, "1", summary=True)
 
     assert resp["summary"] is True
-    assert resp["parsed"] == []
+    assert "parsed" not in resp  # find_lectures/load 메타 모드와 동일하게 키 생략
     assert resp["parsed_count"] == 4  # major 2 + chapel 2 (빈 그룹 제외)
     assert resp["stats"]["total"] == 4
     assert resp["stats"]["parsed_ok"] == 4
@@ -290,7 +290,7 @@ async def test_parse_lectures_cache_miss_summary() -> None:
     resp = await server.parse_lectures_cache(2026, "2", summary=True)
 
     assert resp["_cache"]["source"] == "miss"
-    assert resp["parsed"] == []
+    assert "parsed" not in resp
     assert resp["parsed_count"] == 0
     assert resp["summary"] is True
 
@@ -305,7 +305,7 @@ async def test_parse_lectures_cache_summary_stale() -> None:
     resp = await server.parse_lectures_cache(2026, "1", summary=True)
 
     assert resp["_cache"]["source"] == "stale"
-    assert resp["parsed"] == []
+    assert "parsed" not in resp
     assert resp["parsed_count"] == 4
     assert "guidance" in resp
     assert resp["summary"] is True

@@ -387,7 +387,9 @@ async def find_lectures(
     성공 그룹이 없었으면 error 그룹을 캐시에 남긴다. 응답의
     `_cache.group_key`/`saved`로 저장 여부를 확인한다.
 
-    반환: { lectures: [...], count, fetchTime, includeDetails, _cache }
+    반환: summary=False(기본) — { lectures: [...], count, fetchTime, includeDetails,
+          summary, _cache }. summary=True — lectures 키 생략, count/fetchTime/
+          includeDetails/summary/_cache만.
     include_details=True 시 강의계획서(syllabus)와 상세정보(detail) 포함 (느림).
 
     summary=True 시 lectures 상세를 생략하고 count/fetchTime/includeDetails/_cache
@@ -651,8 +653,10 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
     parsed를 확보하라 — 요약 모드는 "캐시가 파싱 가능한 상태인지"를 가볍게
     확인할 때만 쓴다.
 
-    반환: { year, semester, parsed: [ParsedLecture], subject_groups,
+    반환: { year, semester, summary, parsed_count, subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
+          + summary=False면 parsed: [ParsedLecture] 포함 (summary=True면 키 생략).
+    parsed_count = 파싱된 강의 수 (summary=True에서 parsed 대신 사용).
     parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
     LLM 판단용 pass-through(target/field/professor/division/department/category/
     sub_category — 이수구분 판단은 category: "교필"/"전기-"/"전필-"/"전선-"/
@@ -666,10 +670,9 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
     now = datetime.now(timezone.utc)
 
     if cache is None or cached_at is None:
-        return {
+        resp = {
             "year": year,
             "semester": semester,
-            "parsed": [],
             "parsed_count": 0,
             "summary": summary,
             "subject_groups": {},
@@ -681,6 +684,9 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
                 "서버가 자동으로 캐시에 저장합니다)."
             ),
         }
+        if not summary:
+            resp["parsed"] = []
+        return resp
 
     source = "cache" if is_lectures_cache_fresh(cached_at, now) else "stale"
     all_lectures: list[dict] = []
@@ -706,10 +712,11 @@ async def parse_lectures_cache(year: int, semester: str, summary: bool = False) 
             "age_days": (now - cached_at).days,
         },
     }
-    if summary:
-        response["parsed"] = []
-    else:
+    if not summary:
         response["parsed"] = _jsonify(parsed)
+    # summary=True면 parsed 키를 아예 생략한다 — find_lectures(summary=True)의
+    # lectures 키 생략, load_lectures_cache 메타 모드의 그룹 lectures 키 제외와
+    # 동일한 관례 (SPR-76). 강의 수는 parsed_count로 확인한다.
     if source == "stale":
         response["guidance"] = "강의 데이터가 7일 지났어요. 새로고침할까요?"
     return response
