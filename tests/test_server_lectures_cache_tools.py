@@ -437,6 +437,59 @@ async def test_find_lectures_summary_save_to_cache_false(
     assert cache is None
 
 
+# ── find_by_lecture/find_by_professor summary 강제화 (SPR-110) ─────────────
+
+@pytest.mark.asyncio
+async def test_find_lectures_confirm_only_ignores_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """확인용 조회(find_by_lecture)는 summary=True여도 lectures 상세를 반환한다.
+
+    SPR-110 — 서버가 summary를 무시하고 항상 상세 반환: summary=True로 호출돼도
+    lectures(code)가 생략돼 같은 키워드 재호출(2중 호출, SPR-105)이 생기지 않는다.
+    """
+    monkeypatch.setattr(server, "_run_with_session", _fake_success_run)
+
+    resp = await server.find_lectures(
+        2026,
+        "1",
+        "find_by_lecture",
+        keyword="미분적분학",
+        summary=True,
+    )
+
+    # summary=True를 넘겨도 상세(lectures)가 그대로 온다.
+    assert "lectures" in resp
+    assert resp["lectures"] == _FAKE_RESULT["lectures"]
+    assert resp["count"] == 1
+    # 응답 summary는 실제 반환 모드를 반영한다 (상세 = False).
+    assert resp["summary"] is False
+    # 확인용 조회라 저장도 그대로 제외된다 (SPR-75).
+    assert resp["_cache"]["saved"] is False
+    assert resp["_cache"]["group_key"] == "find_by_lecture_미분적분학"
+
+
+@pytest.mark.asyncio
+async def test_find_lectures_professor_ignores_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """확인용 조회(find_by_professor)도 summary=True여도 lectures 상세를 반환한다."""
+    monkeypatch.setattr(server, "_run_with_session", _fake_success_run)
+
+    resp = await server.find_lectures(
+        2026,
+        "1",
+        "find_by_professor",
+        keyword="홍길동",
+        summary=True,
+    )
+
+    assert "lectures" in resp
+    assert resp["lectures"] == _FAKE_RESULT["lectures"]
+    assert resp["summary"] is False
+    assert resp["_cache"]["saved"] is False
+
+
 # ── parse_lectures_cache summary ───────────────────────────────────────────
 
 

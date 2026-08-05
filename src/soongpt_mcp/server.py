@@ -434,7 +434,9 @@ async def find_lectures(
     만 반환한다 (SPR-76). 통합 조회(soongpt-available-lectures)처럼 결과를 캐시에
     저장하고 count 수준만 보면 되는 호출에 사용 — 응답이 컨텍스트를 크게 아낀다.
     save_to_cache와 독립: summary=True여도 기본 save_to_cache=True면 캐시에는
-    lectures 전체가 저장된다.
+    lectures 전체가 저장된다. 확인용 조회(find_by_lecture/find_by_professor)는
+    summary 파라미터를 무시하고 항상 상세를 반환한다 (SPR-110) — 검색 결과의
+    code·시간을 직접 읽는 게 목적이라 요약 모드는 허용하지 않는다.
 
     최초 호출 시 세션이 없으면 자동으로 브라우저가 열려 로그인 폼을 제공합니다.
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
@@ -521,9 +523,15 @@ async def find_lectures(
         "saved": saved,
         "cached_at": datetime.now(timezone.utc).isoformat() if saved else None,
     }
+    # SPR-110: 확인용 조회(find_by_lecture/find_by_professor)는 summary 파라미터를
+    # 무시하고 항상 상세(lectures 포함)를 반환한다. 검색 목적이 code·시간을 직접
+    # 읽는 것이므로 요약 모드는 무의미하고, summary=True로 호출되면 lectures(code)가
+    # 응답에서 생략돼 같은 키워드 재호출(2중 호출, SPR-105)이 발생했다. 서버가
+    # 강제하므로 호출자는 summary를 신경 쓸 필요가 없다.
+    effective_summary = summary and category_type not in _CONFIRM_ONLY_CATEGORY_TYPES
     # summary 플래그는 항상 응답에 포함해 호출자가 소형 모드 여부를 일관되게
     # 확인할 수 있게 한다 (parse_lectures_cache/load_lectures_cache와 동일 관례).
-    if summary:
+    if effective_summary:
         # SPR-76: lectures 상세는 컨텍스트에 올리지 않고 count 수준만 반환.
         # (결과는 save_to_cache=True면 이미 캐시에 저장됨 — 상세가 필요하면
         # load_lectures_cache로 재조회.)

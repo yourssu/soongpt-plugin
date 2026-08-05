@@ -26,7 +26,7 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 |---|---|---|---|
 | 학적/졸업 | `get_usaint_snapshot` | 학적정보, 학기별 수강과목(코드+강의명 subjects 인라인), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시 + 프로필 자동 저장) | 직접 — "내 수강정보 가져와", "재수강 후보 뭐 있어" |
 | 학적/졸업 | `get_graduation_status` | 졸업요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시) | 직접 — "졸업요건 확인해줘", "몇 학점 남았어" |
-| 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색. 기본 `save_to_cache=True`로 결과를 캐시에 자동 그룹 저장 (SPR-75). `summary=True`면 lectures 상세 생략 (SPR-76) | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
+| 강의검색 | `find_lectures` | 특정 학기/카테고리 강의 검색. 기본 `save_to_cache=True`로 결과를 캐시에 자동 그룹 저장 (SPR-75). `summary=True`면 lectures 상세 생략 (SPR-76) — 단 `find_by_lecture`/`find_by_professor`는 summary 무시하고 항상 상세 (SPR-110) | 직접도 가능하지만 보통 `soongpt-available-lectures`가 여러 카테고리를 한 번에 병렬 호출 |
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
 | 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` | 통합 조회한 강의 목록 캐시 로드 (7일 TTL — 저장은 `find_lectures`가 서버 측 자동). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | `soongpt-available-lectures` 내부에서 사용 |
