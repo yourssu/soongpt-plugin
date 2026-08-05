@@ -163,7 +163,9 @@ async def _run_with_session(
     try:
         session_json = await manager.get_valid_session()
     except SessionError as exc:
-        raise RuntimeError(f"로그인 자동 진행 실패: {exc}") from exc
+        # "실패" 프레이밍은 LLM이 시스템 오류로 오판해 자동 재시도를 반복하게 만든다(SPR-85).
+        # 로그인 절차가 완료되지 않은 것으로 중립적으로 표현한다.
+        raise RuntimeError(f"로그인 절차가 완료되지 않았습니다: {exc}") from exc
 
     try:
         return await service_call(session_json)
@@ -175,7 +177,7 @@ async def _run_with_session(
     try:
         session_json = await manager.get_valid_session()
     except SessionError as exc:
-        raise RuntimeError(f"세션 만료 후 재로그인 실패: {exc}") from exc
+        raise RuntimeError(f"세션 만료 후 로그인 절차가 완료되지 않았습니다: {exc}") from exc
 
     try:
         return await service_call(session_json)
