@@ -675,10 +675,32 @@ def find_case_a_lectures(lectures: list[ParsedLecture]) -> list[str]:
 
     SPR-90 중복 표기: (대상외수강제한)(대상외수강제한) 처럼 2회 반복돼도
     부분 문자열 포함 여부만 판정해 code를 1번만 반환한다.
+
+    이 함수는 "target 어디엔가 마커가 있는 강의"의 조(粗)스캔이다 — 멀티라인
+    target에서 다른 줄에만 마커가 있는 경우(SPR-116)도 포함되므로, 사용자별
+    Case A 판정은 case_a_marker_lines()로 마커가 있는 줄을 확인해 자기 대상 줄과
+    대조해야 한다. 여기서 code가 나왔다고 곧바로 "이 사용자에게 Case A"로
+    단정하지 않는다.
     """
     return [
         p.code for p in lectures if p.target and CASE_A_MARKER in p.target
     ]
+
+
+def case_a_marker_lines(target: str | None) -> list[str]:
+    """target을 줄 단위로 분해해 (대상외수강제한) 마커가 있는 줄만 반환.
+
+    멀티라인 target(SPR-116)은 줄 단위로 독립된 대상 그룹이다 — 예:
+    "2학년 전체\n3학년 전체\n4학년 전체\n5학년 전체 (대상외수강제한)"에서
+    마커는 5학년 줄에만 있으므로 ["5학년 전체 (대상외수강제한)"]을 반환한다.
+    자기 대상(학년+단과대) 줄이 이 목록에 있는지가 Case A 판정의 기준이다.
+    target이 None/빈 문자열이거나 마커가 없으면 []를 반환한다.
+    같은 줄에 마커 2회 반복((대상외수강제한)(대상외수강제한), SPR-90)이어도
+    줄은 1개이므로 그대로 1줄을 반환한다 — 판정은 줄 단위 존재 여부.
+    """
+    if not target:
+        return []
+    return [line.strip() for line in target.splitlines() if CASE_A_MARKER in line]
 
 
 def duplicate_slot_raws(lecture: ParsedLecture) -> list[str]:

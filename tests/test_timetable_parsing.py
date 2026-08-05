@@ -18,6 +18,7 @@ from soongpt_mcp.timetable_parsing import (
     CASE_A_MARKER,
     ParsedLecture,
     build_subject_groups,
+    case_a_marker_lines,
     coerce_conflict_lecture,
     duplicate_slot_raws,
     extract_credits,
@@ -706,6 +707,58 @@ def test_find_case_a_lectures_repeated_marker_dedup() -> None:
     assert find_case_a_lectures([lecture]) == ["2150164205"]
 
 
+# ── SPR-116: 멀티라인 target 줄 단위 Case A 판정 ────────────────
+
+
+def test_case_a_marker_lines_multiline_target_only_marker_line() -> None:
+    """멀티라인 target에서 마커가 있는 줄만 반환 (나머지 줄은 대상외 아님)."""
+    target = "2학년 전체\n3학년 전체\n4학년 전체\n5학년 전체 (대상외수강제한)"
+    assert case_a_marker_lines(target) == ["5학년 전체 (대상외수강제한)"]
+
+
+def test_case_a_marker_lines_single_line_with_marker() -> None:
+    """단일 줄 target이 마커를 포함하면 그 줄 전체를 반환."""
+    assert case_a_marker_lines("컴퓨터학부 2학년(대상외수강제한)") == [
+        "컴퓨터학부 2학년(대상외수강제한)"
+    ]
+
+
+def test_case_a_marker_lines_no_marker() -> None:
+    """마커가 없거나 None/빈 문자열이면 []."""
+    assert case_a_marker_lines("컴퓨터학부 2학년") == []
+    assert case_a_marker_lines("2학년 전체\n3학년 전체") == []
+    assert case_a_marker_lines(None) == []
+    assert case_a_marker_lines("") == []
+
+
+def test_case_a_marker_lines_repeated_marker_same_line() -> None:
+    """SPR-90: 같은 줄에 마커 2회 반복이어도 줄 1개로 반환 (줄 단위 존재 여부)."""
+    assert case_a_marker_lines(
+        f"컴퓨터학부 2학년{CASE_A_MARKER}{CASE_A_MARKER}"
+    ) == [f"컴퓨터학부 2학년{CASE_A_MARKER}{CASE_A_MARKER}"]
+
+
+def test_find_case_a_lectures_multiline_is_coarse_scan() -> None:
+    """SPR-116: find_case_a_lectures는 '어디엔가 마커' 조스캔 — 자기 줄 판정 아님.
+
+    멀티라인 target에서 다른 줄(5학년)에만 마커가 있어도 code는 포함된다.
+    사용자별 Case A 판정은 case_a_marker_lines()로 마커 줄을 확인해 자기 대상
+    줄과 대조해야 한다 (이 함수 자체가 '이 사용자에게 Case A'를 뜻하진 않음).
+    """
+    lecture = parse_lectures(
+        [
+            _lecture(
+                code="2150164205",
+                name="한반도평화와통일",
+                target="2학년 전체\n3학년 전체\n4학년 전체\n5학년 전체 (대상외수강제한)",
+            )
+        ]
+    )[0]
+    assert find_case_a_lectures([lecture]) == ["2150164205"]
+    # 그러나 마커 줄은 5학년뿐 — 4학년 사용자에게는 Case A가 아니다 (자기 줄 없음)
+    assert case_a_marker_lines(lecture.target) == ["5학년 전체 (대상외수강제한)"]
+
+
 # ── SPR-87: 부분 조회 필터 (filter_parsed_lectures) ─────────────
 
 
@@ -1132,7 +1185,7 @@ async def test_check_timetable_conflicts_no_conflict() -> None:
 
 @pytest.mark.asyncio
 async def test_check_timetable_conflicts_case_a_warning() -> None:
-    """target에 (대상외수강제한)이 있으면 warnings에 대상외 수강신청 목록 포함."""
+    """target에 (대상외수강제한)이 있으면 warnings에 대상 줄 포함 목록 노출."""
     a, b = parse_lectures(
         [
             _lecture(code="2150164203", schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
@@ -1151,8 +1204,42 @@ async def test_check_timetable_conflicts_case_a_warning() -> None:
     assert len(case_a) == 1
     assert "이산수학" in case_a[0]
     assert "2150164205" in case_a[0]
+    # SPR-116: 마커가 있는 대상 줄 내용이 함께 표기돼 자기 대상 줄과 대조 가능해야
+    assert "컴퓨터학부 2학년(대상외수강제한)" in case_a[0]
     # Case A가 아닌 강의는 목록에 없어야 한다
     assert "2150164203" not in case_a[0]
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_multiline_target_marker_line() -> None:
+    """SPR-116: 멀티라인 target — 마커가 있는 줄만 '대상 줄'로 표기된다.
+
+    target "2학년 전체\n3학년 전체\n4학년 전체\n5학년 전체 (대상외수강제한)"에서
+    마커는 5학년 줄에만 있다. 경고는 5학년 줄을 대상 줄로 표기해, 4학년 사용자가
+    자기 줄(4학년 전체)에 마커가 없음을 대조로 확인할 수 있게 한다 (Case A 아님).
+    """
+    lecture = parse_lectures(
+        [
+            _lecture(
+                code="2150164205",
+                name="한반도평화와통일",
+                schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)",
+                target="2학년 전체\n3학년 전체\n4학년 전체\n5학년 전체 (대상외수강제한)",
+            )
+        ]
+    )[0]
+    result = await server.check_timetable_conflicts(
+        [p.model_dump(mode="json") for p in [lecture]]
+    )
+    case_a = [w for w in result["warnings"] if "대상외 수강신청" in w]
+    assert len(case_a) == 1
+    assert "한반도평화와통일" in case_a[0]
+    # 마커가 있는 대상 줄(5학년)은 표기된다
+    assert "5학년 전체 (대상외수강제한)" in case_a[0]
+    # 마커가 없는 줄(2·3·4학년)은 대상 줄 목록에 표기되지 않는다
+    assert "2학년 전체" not in case_a[0]
+    assert "3학년 전체" not in case_a[0]
+    assert "4학년 전체" not in case_a[0]
 
 
 @pytest.mark.asyncio

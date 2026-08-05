@@ -81,6 +81,7 @@ from .timetable_parsing import (
     CASE_A_MARKER,
     ParsedLecture,
     build_subject_groups,
+    case_a_marker_lines,
     coerce_conflict_lecture,
     duplicate_slot_raws,
     filter_parsed_by_entered_year,
@@ -1139,9 +1140,13 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     반환: { conflicts: [Conflict], has_blocking_conflict: bool, warnings: [str] }
     Conflict는 겹치는 요일(days)과 구간(start_min/end_min) + 원본 슬롯 문자열을
     담습니다. uncertain/empty 슬롯은 충돌 검사에서 건너뛰고 warnings로 보고합니다.
-    warnings에는 대상외 수강신청(Case A) 목록도 포함됩니다 — 강의 `target`에
-    `(대상외수강제한)` 표기가 있는 강의 code/name을 나열하므로, 후보 저장·재개 시
-    그대로 conflicts_summary에 담으면 됩니다 (SPR-101).
+    warnings에는 대상외수강제한(Case A) 표기 과목과 **마커가 있는 대상 줄**이
+    함께 포함됩니다 (SPR-101, SPR-116). 멀티라인 target은 줄 단위로 독립된 대상
+    그룹이라 다른 줄에만 마커가 있으면 자기 대상(학년+단과대) 줄이 아닐 수
+    있습니다 — 나열된 '대상 줄'과 사용자 본인 줄을 대조해 줄 단위로 판정하세요.
+    자기 줄에 마커가 있는 과목만 '대상외 수강신청' 대상이고, 자기 줄에 없으면
+    정규 수강신청입니다 (후보 저장·재개 시 그 줄 단위 판정 결과를
+    conflicts_summary에 담습니다).
     """
     if len(lectures) > 30:
         raise ValueError(
@@ -1161,17 +1166,29 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     # 레벨에서 표면화해 후보 저장·재개 시 누락 위험을 제거한다. LLM 판독 의존을
     # 도구 보장으로 승격. SPR-90 중복 표기((대상외수강제한)(대상외수강제한))는
     # 존재 여부만 판정하므로 1건으로만 보고된다.
+    # SPR-116: 멀티라인 target은 줄 단위로 독립된 대상 그룹이다 — 마커가 특정
+    # 줄에만 있으면 그 줄(학년)만 대상외다. 도구는 사용자 프로필(학년·단과대)을
+    # 모르므로 "자기 대상 줄 판정" 자체는 하지 않지만, 마커가 있는 대상 줄을
+    # 경고에 함께 표기해 LLM이 자기 대상 줄과 대조해 줄 단위로 판정하게 한다
+    # (판정의 원본 데이터 제공 — case_a_marker_lines).
     case_a_codes = find_case_a_lectures(parsed)
     if case_a_codes:
         name_by_code = {p.code: p.name for p in parsed}
+        marker_lines_by_code = {
+            p.code: case_a_marker_lines(p.target or "")
+            for p in parsed
+            if p.code in case_a_codes
+        }
         labeled = ", ".join(
-            f"{name_by_code[c]}[{c}]" if name_by_code.get(c) else c
+            f"{name_by_code.get(c, c)}[{c}]"
+            f"(대상 줄: {' | '.join(marker_lines_by_code[c])})"
             for c in case_a_codes
         )
         warnings.append(
-            f"대상외 수강신청 필요 과목 {len(case_a_codes)}개 "
-            f"(Case A — target에 {CASE_A_MARKER} 표기): {labeled} — "
-            f"정규 수강신청이 아니라 별도 '대상외 수강신청' 기간에 담아야 합니다"
+            f"대상외수강제한(Case A) 표기 대상 줄 확인 필요 {len(case_a_codes)}개: "
+            f"{labeled} — 자기 대상(학년+단과대)에 해당하는 줄에 {CASE_A_MARKER}이 "
+            f"있으면 '대상외 수강신청' 기간에 담고, 자기 줄에는 없고 다른 줄에만 "
+            f"있으면 정규 수강신청으로 담을 수 있습니다"
         )
     # 동일 강의 내 (요일+시작+종료) 중복 슬롯 방어 — 파싱 dedup(SPR-82) 후 정상
     # 흐름에서는 발생하지 않지만, 수동 dict/구버전 데이터로 들어오면 경고로 보고.
