@@ -81,8 +81,9 @@ python3 <이 SKILL.md 폴더 절대 경로>/render_timetable.py /tmp/soongpt_tim
 ```
 
 - **어떤 python3로든** 실행 가능 (표준 라이브러리만 사용). `soongpt_mcp`가 설치된 환경이면 정확한 파서/충돌 검사를 재사용하고, 아니면 동일 스펙의 내장 파서로 폴백한다.
+- **출력 경로**: `--out` 미지정 시 사용자 캐시 디렉토리(`$XDG_CACHE_HOME/soongpt/timetable.html` 또는 `~/.cache/soongpt/timetable.html`)에 저장하고, 저장 경로를 stdout으로 출력한다. **cwd(사용자 프로젝트/저장소 루트)를 오염시키지 않는다** (SPR-80).
 - `--open`: 렌더링 후 기본 브라우저로 `file://` 오픈. headless/SSH 환경에서 브라우저가 안 열리면 `--open`을 빼고 `--out <경로>`로 파일만 만들고 사용자에게 경로를 알려준다.
-- `--out <경로>`로 출력 파일 위치를 바꿀 수 있다 (기본 `timetable.html`).
+- `--out <경로>`로 출력 파일 위치를 바꿀 수 있다 (명시 시 그 경로에 저장 — cwd 포함).
 - 실행 실패 시 stderr 메시지를 보고 입력 JSON을 점검한다 (code 누락, JSON 문법 오류 등).
 
 ### 4. 결과 확인 + 안내

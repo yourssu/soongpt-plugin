@@ -8,6 +8,10 @@
 사용법:
     python3 render_timetable.py timetable.json [--out out.html] [--open]
 
+--out 미지정 시 사용자 캐시 디렉토리(~/.cache/soongpt/timetable.html,
+$XDG_CACHE_HOME 우선)에 저장하고 저장소/프로젝트 폴더를 오염시키지 않는다
+(SPR-80). 저장 경로는 stdout으로 출력한다.
+
 입력 JSON (find_lectures 반환과 동일한 강의 dict 목록):
     [
       {
@@ -30,8 +34,10 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
+import tempfile
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -537,6 +543,42 @@ h3 {{ font-size: 13px; margin: 0 0 6px; }}
 """
 
 
+DEFAULT_OUT_FILENAME = "timetable.html"
+
+
+def default_output_dir() -> Path:
+    """기본 출력 디렉토리 (SPR-80) — cwd 오염 방지.
+
+    `--out` 미지정 시 사용자 캐시 디렉토리(`$XDG_CACHE_HOME/soongpt` 또는
+    `~/.cache/soongpt`)를 기본으로 쓴다. 저장소/프로젝트 루트에 untracked
+    파일이 남지 않게 하기 위함. 경로만 반환하며 디렉토리 생성은 호출자가
+    한다.
+    """
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    if xdg:
+        return Path(xdg) / "soongpt"
+    return Path.home() / ".cache" / "soongpt"
+
+
+def resolve_out_path(out_arg: str | None) -> Path:
+    """출력 HTML 경로 결정 (SPR-80).
+
+    `--out` 지정 시 그대로 사용하고, 미지정 시 `default_output_dir()` 아래에
+    `timetable.html`로 저장한다 (cwd를 오염시키지 않는다). 캐시 디렉토리
+    생성이 불가한 환경(홈 접근 불가 등)은 OS 임시 디렉토리로 폴백한다.
+    """
+    if out_arg:
+        return Path(out_arg)
+    try:
+        out_dir = default_output_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except (OSError, RuntimeError):
+        # 홈/캐시 경로 접근 불가 환경(HOME 미설정 등) — OS 임시 디렉토리 폴백.
+        # 어느 쪽도 cwd가 아니므로 저장소/프로젝트 폴더는 절대 오염되지 않는다.
+        out_dir = Path(tempfile.gettempdir())
+    return out_dir / DEFAULT_OUT_FILENAME
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="시간표를 정적 HTML로 렌더링합니다 (표준 라이브러리만 사용)."
@@ -547,8 +589,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--out",
-        default="timetable.html",
-        help="출력 HTML 경로 (기본: timetable.html)",
+        default=None,
+        help=(
+            "출력 HTML 경로 (기본: 사용자 캐시 디렉토리 "
+            "$XDG_CACHE_HOME/soongpt/timetable.html 또는 "
+            "~/.cache/soongpt/timetable.html)"
+        ),
     )
     parser.add_argument(
         "--title",
@@ -570,7 +616,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
-    out_path = Path(args.out)
+    out_path = resolve_out_path(args.out)
     out_path.write_text(html_str, encoding="utf-8")
 
     conflict_blocks = sum(1 for b in blocks if b.is_conflict)
