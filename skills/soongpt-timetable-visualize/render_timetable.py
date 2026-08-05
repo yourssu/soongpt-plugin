@@ -12,9 +12,6 @@
     # 터미널 텍스트 격자 모드 (SPR-117)
     python3 render_timetable.py timetable.json --format text [--title "안 A — 17학점"]
 
-    # 텍스트 격자 + 졸업사정표 반영 표 (SPR-117 — 3학년 이상 후보 제시용)
-    python3 render_timetable.py timetable.json --format text --graduation graduation.json
-
 --out 미지정 시 사용자 캐시 디렉토리(~/.cache/soongpt/timetable.html,
 $XDG_CACHE_HOME 우선)에 저장하고 저장소/프로젝트 폴더를 오염시키지 않는다
 (SPR-80). 저장 경로는 stdout으로 출력한다.
@@ -36,10 +33,6 @@ $XDG_CACHE_HOME 우선)에 저장하고 저장소/프로젝트 폴더를 오염�
 렌더링: 요일×시간 그리드. 겹치는 강의는 시간축에 나란히 배치하고, 충돌
 강의는 HTML에서 빨간 테두리, 텍스트에서 '⚠'로 강조. JS 없이 Python이 셀
 위치를 미리 계산.
-
-졸업 표(--graduation): get_graduation_status() 반환(graduationSummary 포함) 또는
-graduationSummary dict 그 자체를 읽어, 후보 강의의 이수구분(category)별 학점
-합산으로 '이수 후'/잔여를 계산한다. 카테고리 표만 출력한다 (SPR-117).
 """
 from __future__ import annotations
 
@@ -52,7 +45,6 @@ import sys
 import tempfile
 import unicodedata
 import webbrowser
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -77,23 +69,6 @@ _SCHEDULE_ROOM_RE = re.compile(
     r"(?P<start>\d{1,2}:\d{2})\s*-\s*(?P<end>\d{1,2}:\d{2})\s*"
     r"\((?P<content>.+)\)$"
 )
-
-# 졸업 표(SPR-117): graduationSummary 키 ↔ 후보 강의 이수구분(category) prefix ↔ 표시명.
-# graduationSummary 항목(비-null)마다 행을 만들고, category가 prefix로 시작하는
-# 후보 강의 학점을 합산해 '이수 후'를 계산한다. 순서 = 표시 순서 (전공 → 교양 → 기타).
-_GRAD_CATEGORY_ROWS: tuple[tuple[str, tuple[str, ...], str], ...] = (
-    ("majorFoundation", ("전기-",), "전공기초"),
-    ("majorRequired", ("전필-",), "전공필수"),
-    ("majorElective", ("전선-",), "전공선택"),
-    ("generalRequired", ("교필",), "교양필수"),
-    ("generalElective", ("교선",), "교양선택"),
-    ("christianCourses", ("기독교",), "기독교과목"),
-    ("chapel", ("채플",), "채플"),
-    ("minor", ("부전공",), "부전공"),
-    ("doubleMajorRequired", ("복필",), "복수전공필수"),
-    ("doubleMajorElective", ("복선",), "복수전공선택"),
-)
-
 
 def _to_minutes(hhmm: str) -> int:
     """'HH:MM' → 자정 이후 분 (예: '10:30' → 630)."""
@@ -725,133 +700,6 @@ def render_text(
     return "\n".join(lines) + "\n"
 
 
-# ── 졸업사정표 반영 표 (SPR-117) ────────────────────────────────────────
-
-
-def _lecture_credits(lecture: dict) -> float:
-    """lecture dict 학점 추출 — credits 필드 우선, 없으면 time_points 앞 숫자.
-
-    time_points는 "3/3" 형태라 학점/시수 앞 숫자가 학점 (timetable_parsing과 동일).
-    """
-    credits = lecture.get("credits")
-    if isinstance(credits, (int, float)):
-        return float(credits)
-    time_points = lecture.get("time_points")
-    if time_points:
-        match = re.match(r"\s*(\d+(?:\.\d+)?)", str(time_points))
-        if match:
-            return float(match.group(1))
-    return 0.0
-
-
-def compute_graduation_rows(
-    lectures: list[dict],
-    graduation_summary: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """졸업 요약 + 후보 강의 → 카테고리별 '이수 후'/잔여 행 목록 (SPR-117).
-
-    graduationSummary 비-null 항목마다 행을 만든다. '이수 후' = summary
-    completed + 후보 강의의 category별 학점 합산, 잔여 = required - 이수 후
-    (0 미만은 0으로 표시, 0이면 충족). 채플은 학점이 아니라 충족 여부만
-    추적하므로 후보에 채플 category 강의가 있으면 충족으로 표시한다.
-    """
-    credits_by_key: dict[str, float] = defaultdict(float)
-    has_chapel = False
-    for lecture in lectures:
-        category = lecture.get("category") or ""
-        credits = _lecture_credits(lecture)
-        for key, prefixes, _label in _GRAD_CATEGORY_ROWS:
-            if any(category.startswith(prefix) for prefix in prefixes):
-                if key == "chapel":
-                    has_chapel = True
-                else:
-                    credits_by_key[key] += credits
-                break
-
-    rows: list[dict[str, Any]] = []
-    for key, _prefixes, label in _GRAD_CATEGORY_ROWS:
-        item = graduation_summary.get(key) if isinstance(graduation_summary, dict) else None
-        if not isinstance(item, dict):
-            continue
-        if key == "chapel":
-            rows.append(
-                {
-                    "label": label,
-                    "current": None,
-                    "after": None,
-                    "target": None,
-                    "remaining": None,
-                    "satisfied": bool(item.get("satisfied")) or has_chapel,
-                }
-            )
-            continue
-        current = float(item.get("completed", 0) or 0)
-        target = float(item.get("required", 0) or 0)
-        after = current + credits_by_key.get(key, 0.0)
-        remaining = max(target - after, 0.0)
-        rows.append(
-            {
-                "label": label,
-                "current": current,
-                "after": after,
-                "target": target,
-                "remaining": remaining,
-                "satisfied": remaining <= 0.0,
-            }
-        )
-    return rows
-
-
-def _fmt_num(value: float | None) -> str:
-    """학점 수 표시 — 정수면 정수로, 아니면 g 포맷. None은 '-'(채플 등)."""
-    if value is None:
-        return "-"
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{value:g}"
-
-
-def render_graduation_table(rows: list[dict[str, Any]]) -> str:
-    """카테고리 행 목록 → 표 문자열 (카테고리/현재/이수 후/목표/잔여). SPR-117.
-
-    잔여 0(충족)인 행은 잔여 셀에 '✅'를 붙인다. 채플처럼 수치가 없는 항목은
-    현재/이수 후/목표를 '-'로 표시하고 충족 시 잔여 셀에 '✅'만 붙인다.
-    """
-    if not rows:
-        return "졸업 요건 데이터 없음"
-    headers = ["카테고리", "현재", "이수 후", "목표", "잔여"]
-
-    cat_w = max(_display_width(h) for h in [headers[0], *(r["label"] for r in rows)])
-    cells: list[list[str]] = []
-    for row in rows:
-        if row.get("current") is None:
-            current = after = target = "-"
-            remaining = "- ✅" if row.get("satisfied") else "-"
-        else:
-            current = _fmt_num(row["current"])
-            after = _fmt_num(row["after"])
-            target = _fmt_num(row["target"])
-            remaining = _fmt_num(row["remaining"]) + (
-                " ✅" if row.get("satisfied") else ""
-            )
-        cells.append([current, after, target, remaining])
-
-    num_w = [_display_width(headers[i + 1]) for i in range(4)]
-    for cell_row in cells:
-        for i, cell in enumerate(cell_row):
-            num_w[i] = max(num_w[i], len(cell))
-
-    def fmt_row(cat: str, nums: list[str]) -> str:
-        num_text = " | ".join(_pad_display(nums[i], num_w[i]) for i in range(4))
-        return _pad_display(cat, cat_w) + " | " + num_text
-
-    lines = [fmt_row(headers[0], headers[1:])]
-    lines.append("-" * _display_width(lines[0]))
-    for row, cell_row in zip(rows, cells):
-        lines.append(fmt_row(row["label"], cell_row))
-    return "\n".join(lines) + "\n"
-
-
 DEFAULT_OUT_FILENAME = "timetable.html"
 
 
@@ -892,24 +740,6 @@ def resolve_out_path(out_arg: str | None) -> Path:
     return out_dir / DEFAULT_OUT_FILENAME
 
 
-def _load_graduation_summary(path: str | None) -> dict[str, Any] | None:
-    """--graduation 파일 로드 → graduationSummary dict (SPR-117).
-
-    get_graduation_status() 반환 전체(graduationSummary 키 포함) 또는
-    graduationSummary dict 그 자체를 지원한다. 미지정 시 None.
-    """
-    if not path:
-        return None
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if isinstance(data, dict) and "graduationSummary" in data:
-        data = data["graduationSummary"]
-    if not isinstance(data, dict):
-        raise TypeError(
-            "--graduation 파일은 graduationSummary dict 또는 이를 포함한 응답이어야 합니다"
-        )
-    return data
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -926,14 +756,6 @@ def main(argv: list[str] | None = None) -> int:
         choices=("html", "text"),
         default="html",
         help="출력 형식: html(기본 — 정적 HTML 파일), text(터미널 텍스트 격자)",
-    )
-    parser.add_argument(
-        "--graduation",
-        default=None,
-        help=(
-            "졸업사정표 요약 JSON 경로 (get_graduation_status 반환 또는 "
-            "graduationSummary dict). text 모드에서 졸업 표를 함께 출력"
-        ),
     )
     parser.add_argument(
         "--out",
@@ -959,16 +781,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         lectures = load_lectures(Path(args.input))
         blocks, warnings = build_blocks(lectures)
-        graduation_summary = _load_graduation_summary(args.graduation)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
     if args.format == "text":
         text = render_text(blocks, warnings, title=args.title)
-        if graduation_summary is not None:
-            rows = compute_graduation_rows(lectures, graduation_summary)
-            text = text.rstrip("\n") + "\n\n" + render_graduation_table(rows)
         if args.out:
             out_path = Path(args.out)
             out_path.write_text(text, encoding="utf-8")

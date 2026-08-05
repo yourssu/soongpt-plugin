@@ -6,13 +6,13 @@ skills/soongpt-timetable-visualize/render_timetable.py 를 importlib로 로드�
 기본적으로 라이브러리 재사용 경로를 탄다. 폴백 경로는 lib 함수를 None으로
 monkeypatch해서 검증한다.
 
-SPR-117 추가: 터미널 텍스트 격자(render_text)와 졸업사정표 반영 표
-(compute_graduation_rows/render_graduation_table) 및 --format text CLI 검증.
+SPR-117 추가: 터미널 텍스트 격자(render_text) 및 --format text CLI 검증.
+졸업사정표 반영 표는 렌더러가 아닌 composer SKILL.md 지침(LLM 생성)으로
+제공되므로 렌더러 테스트에서는 다루지 않는다 (PR #79 critic 반영).
 """
 from __future__ import annotations
 
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -667,150 +667,6 @@ def test_render_text_warnings_section(renderer) -> None:
     assert "파싱 실패: 2150164203" in text
 
 
-# ── 졸업사정표 반영 표 (SPR-117) ────────────────────────────────────────
-
-
-def _grad_summary(**overrides: object) -> dict:
-    """졸업사정표 요약 dict (get_graduation_status.graduationSummary 형태)."""
-    base = {
-        "generalRequired": {"required": 15, "completed": 12, "satisfied": False},
-        "majorFoundation": {"required": 6, "completed": 6, "satisfied": True},
-        "majorRequired": {"required": 24, "completed": 18, "satisfied": False},
-        "chapel": {"satisfied": False},
-    }
-    base.update(overrides)
-    return base
-
-
-def test_lecture_credits_extraction(renderer) -> None:
-    """credits 필드 우선, 없으면 time_points 앞 숫자 (채플 0.5 포함)."""
-    assert renderer._lecture_credits({"credits": 4.0}) == 4.0
-    assert renderer._lecture_credits({"time_points": "3/3"}) == 3.0
-    assert renderer._lecture_credits({"time_points": "0.5/0.5"}) == 0.5
-    assert renderer._lecture_credits({}) == 0.0
-
-
-def test_compute_graduation_rows_after_and_remaining(renderer) -> None:
-    """'이수 후' = 현재 + 카테고리별 학점 합산, 잔여 = 목표 - 이수 후."""
-    lectures = [
-        _lecture(category="전필-컴퓨터학부", time_points="3/3"),
-        _lecture(code="2150164204", category="전필-컴퓨터학부", time_points="2/2"),
-        _lecture(code="3161011001", category="교필", time_points="3/3"),
-        _lecture(code="9990030001", category="채플", time_points="0.5/0.5"),
-    ]
-    rows = renderer.compute_graduation_rows(lectures, _grad_summary())
-    by_label = {r["label"]: r for r in rows}
-    # 전공필수: 18 + 3 + 2 = 23, 목표 24, 잔여 1
-    assert by_label["전공필수"]["after"] == 23
-    assert by_label["전공필수"]["remaining"] == 1
-    assert by_label["전공필수"]["satisfied"] is False
-    # 교양필수: 12 + 3 = 15, 잔여 0 → 충족
-    assert by_label["교양필수"]["after"] == 15
-    assert by_label["교양필수"]["remaining"] == 0
-    assert by_label["교양필수"]["satisfied"] is True
-    # 전공기초: 이미 충족(6/6), 후보 없음 → 그대로 유지
-    assert by_label["전공기초"]["after"] == 6
-    assert by_label["전공기초"]["satisfied"] is True
-    # 채플: 학점 없음(수치 None), 후보에 채플 포함 → 충족
-    assert by_label["채플"]["current"] is None
-    assert by_label["채플"]["satisfied"] is True
-
-
-def test_compute_graduation_rows_clamps_negative_remaining(renderer) -> None:
-    """목표 초과 시 잔여는 0으로 고정되고 충족 처리된다."""
-    lectures = [_lecture(category="전필-컴퓨터학부", time_points="9/9")]
-    rows = renderer.compute_graduation_rows(lectures, _grad_summary())
-    by_label = {r["label"]: r for r in rows}
-    assert by_label["전공필수"]["after"] == 27
-    assert by_label["전공필수"]["remaining"] == 0
-    assert by_label["전공필수"]["satisfied"] is True
-
-
-def test_compute_graduation_rows_unknown_category_ignored(renderer) -> None:
-    """교직 등 졸업 요약 항목에 없는 이수구분은 어떤 행에도 합산되지 않는다."""
-    lectures = [_lecture(category="교직", time_points="3/3")]
-    rows = renderer.compute_graduation_rows(lectures, _grad_summary())
-    by_label = {r["label"]: r for r in rows}
-    assert by_label["전공필수"]["after"] == 18
-    assert by_label["교양필수"]["after"] == 12
-
-
-def test_compute_graduation_rows_only_tracked_items(renderer) -> None:
-    """graduationSummary에 없는 항목은 행에 나타나지 않는다."""
-    summary = {"generalRequired": {"required": 15, "completed": 12, "satisfied": False}}
-    rows = renderer.compute_graduation_rows([], summary)
-    labels = [r["label"] for r in rows]
-    assert labels == ["교양필수"]
-
-
-def test_render_graduation_table_format(renderer) -> None:
-    """표 구조 + 잔여 0(충족) 행에 ✅ 표시."""
-    rows = renderer.compute_graduation_rows(
-        [_lecture(category="전필-컴퓨터학부", time_points="3/3")],
-        _grad_summary(),
-    )
-    table = renderer.render_graduation_table(rows)
-    for header in ("카테고리", "현재", "이수 후", "목표", "잔여"):
-        assert header in table
-    assert "전공필수" in table
-    assert "교양필수" in table
-    assert "✅" in table  # 교양필수 잔여 0 → ✅
-
-
-def test_render_graduation_table_alignment(renderer) -> None:
-    """한글 헤더('이수 후')를 포함해 모든 행의 표시 폭이 동일하다."""
-    rows = renderer.compute_graduation_rows([], _grad_summary())
-    table = renderer.render_graduation_table(rows)
-    widths = {
-        renderer._display_width(line)
-        for line in table.splitlines()
-        if not line.startswith("-")
-    }
-    assert len(widths) == 1
-
-
-def test_render_graduation_table_empty(renderer) -> None:
-    assert renderer.render_graduation_table([]) == "졸업 요건 데이터 없음"
-
-
-# ── 졸업 입력 로딩 (--graduation) ──────────────────────────────────────
-
-
-def test_load_graduation_summary_wrapper(renderer, tmp_path: Path) -> None:
-    """get_graduation_status 반환 전체에서 graduationSummary 키를 추출."""
-    path = tmp_path / "g.json"
-    path.write_text(
-        json.dumps({"graduationSummary": {"chapel": {"satisfied": True}}}),
-        encoding="utf-8",
-    )
-    assert renderer._load_graduation_summary(str(path)) == {
-        "chapel": {"satisfied": True}
-    }
-
-
-def test_load_graduation_summary_bare(renderer, tmp_path: Path) -> None:
-    """graduationSummary dict 그 자체도 허용."""
-    path = tmp_path / "g.json"
-    path.write_text(
-        json.dumps({"majorRequired": {"required": 1, "completed": 0}}),
-        encoding="utf-8",
-    )
-    assert renderer._load_graduation_summary(str(path)) == {
-        "majorRequired": {"required": 1, "completed": 0}
-    }
-
-
-def test_load_graduation_summary_none(renderer) -> None:
-    assert renderer._load_graduation_summary(None) is None
-
-
-def test_load_graduation_summary_invalid_type(renderer, tmp_path: Path) -> None:
-    path = tmp_path / "g.json"
-    path.write_text("[1,2,3]", encoding="utf-8")
-    with pytest.raises(TypeError):
-        renderer._load_graduation_summary(str(path))
-
-
 # ── CLI text 모드 (SPR-117) ─────────────────────────────────────────────
 
 
@@ -839,55 +695,6 @@ def test_main_text_writes_out_when_requested(renderer, tmp_path: Path) -> None:
     assert rc == 0
     assert out_path.exists()
     assert "표시할 강의가 없습니다" in out_path.read_text(encoding="utf-8")
-
-
-def test_main_text_with_graduation(renderer, tmp_path: Path, capsys) -> None:
-    """--graduation 지정 시 격자 아래에 졸업 표가 붙는다."""
-    input_path = tmp_path / "candidate.json"
-    input_path.write_text(
-        '[{"code": "2150164203", "name": "알고리즘", "category": "전필-컴퓨터학부", '
-        '"time_points": "3/3", '
-        '"schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)"}]',
-        encoding="utf-8",
-    )
-    grad_path = tmp_path / "grad.json"
-    grad_path.write_text(
-        json.dumps(
-            {
-                "graduationSummary": {
-                    "majorRequired": {
-                        "required": 24,
-                        "completed": 18,
-                        "satisfied": False,
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    rc = renderer.main(
-        [str(input_path), "--format", "text", "--graduation", str(grad_path)]
-    )
-    captured = capsys.readouterr()
-    assert rc == 0
-    assert "전공필수" in captured.out
-    assert "이수 후" in captured.out
-    assert "카테고리" in captured.out
-
-
-def test_main_text_missing_graduation_returns_1(renderer, tmp_path: Path) -> None:
-    input_path = tmp_path / "candidate.json"
-    input_path.write_text("[]", encoding="utf-8")
-    rc = renderer.main(
-        [
-            str(input_path),
-            "--format",
-            "text",
-            "--graduation",
-            str(tmp_path / "nope.json"),
-        ]
-    )
-    assert rc == 1
 
 
 def test_main_text_ignores_open(renderer, tmp_path: Path, monkeypatch) -> None:
