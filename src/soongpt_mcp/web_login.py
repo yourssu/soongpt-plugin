@@ -340,8 +340,17 @@ async def run_web_login(
     try:
         session_json = await asyncio.wait_for(state.future, timeout=timeout_seconds)
     except asyncio.TimeoutError as exc:
+        # "다시 시도하세요"만 던지면 LLM이 시스템 오류로 오판해 자동 재시도를
+        # 반복할 수 있다(SPR-85). 로그인 절차임을 명시해 사용자 안내 후 1회
+        # 재시도하도록 안내하고, 자동 반복은 금지한다.
         raise WebLoginError(
-            f"로그인 대기 시간 초과 ({timeout_seconds}초). 다시 시도하세요."
+            f"로그인 대기 시간 초과 ({timeout_seconds}초). "
+            "웹 로그인 폼이 브라우저에서 열렸다가 로그인 없이 닫혔습니다. "
+            "이것은 시스템 오류가 아니라 사용자 로그인 절차입니다. "
+            "사용자에게 '브라우저 로그인 폼에서 로그인 후 다시 시도해 달라'고 "
+            "안내하고, 사용자가 로그인을 마친 뒤 다시 한 번 시도하세요. "
+            "다시 시도하면 로그인 폼이 새로 열립니다. "
+            "같은 작업을 자동으로 반복 재시도하지 마세요."
         ) from exc
     finally:
         state.request_shutdown()
