@@ -154,7 +154,7 @@ find_lectures(year, semester, category_type="optional_elective",
    list_required_electives(year, semester)
    ```
    - **사전 안내**: 조회 결과 과목명이 N개임을 확인한 뒤, **fetch 시작 전** 먼저
-     사용자에게 "교양필수 N개 과목 조회는 1~2분 걸릴 수 있어요" 수준의 문구로 대기
+     사용자에게 "교양필수 N개 과목 조회는 2분 내외 걸릴 수 있어요" 수준의 문구로 대기
      시간을 안내한다. (실측: 31과목 기준 벽시계 2분 3초 — N이 클수록 안내 필수)
 2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출 (약 4개씩 묶음 — 3-0 묶음 규칙, 이 단계가 호출 수가 가장 많음):
    ```
