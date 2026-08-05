@@ -61,9 +61,9 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 - **취합 → save_lectures_cache 호출이 없다.** `save_lectures_cache` 도구는 제거됨. fetch가 끝나면 그 그룹은 이미 캐시에 들어 있다.
 - **그룹 키도 서버가 자동 생성**한다 (아래 각 카테고리의 `groups["..."]` 표기는 자동 생성될 키 안내 — 스킬이 직접 키를 정하지 않는다).
-- **모든 fetch는 `summary=True`를 붙인다** (SPR-76). 서버가 응답에서 lectures 상세를 생략하고 `count`/`fetchTime`/`_cache`(group_key/saved)만 반환한다 — 컨텍스트를 크게 아낀다. 결과는 이미 캐시에 저장되므로 상세가 필요하면 `load_lectures_cache(year, semester)`(기본 상세)로 재조회하면 된다. **특정 강의 몇 개만 상세가 필요하면 `load_lectures_cache(year, semester, codes=[...], include_groups=False)`(SPR-88/SPR-92)로 해당 강의만 받는다** — 전체 상세(최대 673KB) 대신 후보 몇 개만 컨텍스트에 올라 파일 스필을 막고, 그룹 메타(~30-40KB)도 생략한다. 특히 교양선택 "전체"(약 337강의)는 요약 모드 없이는 응답이 ~220KB에 달하므로 반드시 `summary=True`다.
+- **모든 fetch는 `summary=True`를 붙인다** (SPR-76). 서버가 응답에서 lectures 상세를 생략하고 `count`/`fetchTime`/`_cache`(group_key/saved)만 반환한다 — 컨텍스트를 크게 아낀다. 결과는 이미 캐시에 저장되므로 상세가 필요하면 `load_lectures_cache(year, semester)`(기본 상세)로 재조회하면 된다. **예외: `find_by_lecture`/`find_by_professor` 확인용 조회는 `summary=False`(상세)로 호출한다** (SPR-105) — 캐시 저장이 목적이 아니라 **검색 결과의 code·시간을 직접 읽는 것**이 목적이라 상세 응답이 필요하다. `summary=True`면 `lectures`(그리고 `code`)가 생략돼 같은 키워드를 재호출해야 한다 (composer ③ 재수강 절차에서 사용). **특정 강의 몇 개만 상세가 필요하면 `load_lectures_cache(year, semester, codes=[...], include_groups=False)`(SPR-88/SPR-92)로 해당 강의만 받는다** — 전체 상세(최대 673KB) 대신 후보 몇 개만 컨텍스트에 올라 파일 스필을 막고, 그룹 메타(~30-40KB)도 생략한다. 특히 교양선택 "전체"(약 337강의)는 요약 모드 없이는 응답이 ~220KB에 달하므로 반드시 `summary=True`다.
 - **실패 카테고리는 예외가 그대로 온다** (연계/융합처럼 한쪽 실패가 정상인 경우 포함). 예외 후에는 `load_lectures_cache(year, semester, include_lectures=False)`로 해당 그룹의 `error` 필드를 확인해 재조회 여부를 판단한다. (기존 성공 그룹이 있으면 error 그룹으로 대체되지 않으니 데이터는 보존된다. `_cache.saved=False`는 "확인용 조회라 저장을 건너뜀"의 경우다.)
-- **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다.
+- **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다. **단 `summary=False`(상세)로 호출한다 (SPR-105)** — 캐시 저장은 안 되지만 검색 결과에서 code·시간을 직접 읽는 게 목적이라 상세 응답이 필요하다. `summary=True`로 호출하면 `lectures`가 생략돼 같은 키워드를 재호출해야 한다 (composer ③ 재수강에서 사용).
 
 #### 3-A. 전공 계열 (2~6회 병렬)
 
