@@ -84,7 +84,7 @@ async def test_session_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None
     async def service(session: str) -> str:
         return "ok"
 
-    with pytest.raises(RuntimeError, match="로그인 자동 진행 실패"):
+    with pytest.raises(RuntimeError, match="로그인 절차가 완료되지 않았습니다"):
         await _run_with_session(service)
 
 
