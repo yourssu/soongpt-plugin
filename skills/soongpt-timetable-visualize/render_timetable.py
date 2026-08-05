@@ -1,4 +1,4 @@
-"""시간표 시각화 렌더러 — 강의 dict 목록 JSON → 정적 HTML.
+"""시간표 시각화 렌더러 — 강의 dict 목록 JSON → 정적 HTML / 터미널 텍스트 격자.
 
 표준 라이브러리만 사용하는 스탠드얼론 스크립트. 어떤 python3에서든 실행 가능
 (플러그인 venv 경로를 몰라도 됨). soongpt_mcp.timetable_parsing이 import
@@ -6,7 +6,11 @@
 파서로 폴백한다.
 
 사용법:
+    # HTML 모드 (기본 — 브라우저 시각화)
     python3 render_timetable.py timetable.json [--out out.html] [--open]
+
+    # 터미널 텍스트 격자 모드 (SPR-117)
+    python3 render_timetable.py timetable.json --format text [--title "안 A — 17학점"]
 
 --out 미지정 시 사용자 캐시 디렉토리(~/.cache/soongpt/timetable.html,
 $XDG_CACHE_HOME 우선)에 저장하고 저장소/프로젝트 폴더를 오염시키지 않는다
@@ -27,7 +31,8 @@ $XDG_CACHE_HOME 우선)에 저장하고 저장소/프로젝트 폴더를 오염�
     최상위가 dict면 "lectures" 키의 목록을 사용한다 (선택).
 
 렌더링: 요일×시간 그리드. 겹치는 강의는 시간축에 나란히 배치하고, 충돌
-강의는 빨간 테두리로 시각적 강조. JS 없이 Python이 셀 위치를 미리 계산.
+강의는 HTML에서 빨간 테두리, 텍스트에서 '⚠'로 강조. JS 없이 Python이 셀
+위치를 미리 계산.
 """
 from __future__ import annotations
 
@@ -38,6 +43,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,7 +69,6 @@ _SCHEDULE_ROOM_RE = re.compile(
     r"(?P<start>\d{1,2}:\d{2})\s*-\s*(?P<end>\d{1,2}:\d{2})\s*"
     r"\((?P<content>.+)\)$"
 )
-
 
 def _to_minutes(hhmm: str) -> int:
     """'HH:MM' → 자정 이후 분 (예: '10:30' → 630)."""
@@ -543,6 +548,158 @@ h3 {{ font-size: 13px; margin: 0 0 6px; }}
 """
 
 
+# ── 터미널 텍스트 격자 (SPR-117) ────────────────────────────────────────
+
+
+def _display_width(text: str) -> int:
+    """터미널 표시 폭 — 전각(한글 등) 문자는 2칸, 나머지는 1칸 (SPR-117)."""
+    return sum(
+        2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text
+    )
+
+
+def _pad_display(text: str, width: int) -> str:
+    """표시 폭 기준 좌측 정렬 + 공백 패딩 (한글 셀 정렬 보존)."""
+    return text + " " * max(width - _display_width(text), 0)
+
+
+def _truncate_display(text: str, max_width: int) -> str:
+    """표시 폭 초과 시 끝 1칸을 '…'로 예약해 잘라낸다 (한글 2칸 고려)."""
+    if _display_width(text) <= max_width:
+        return text
+    out = ""
+    used = 0
+    for ch in text:
+        width = _display_width(ch)
+        if used + width > max_width - 1:
+            break
+        out += ch
+        used += width
+    return out + "…"
+
+
+def render_text(
+    blocks: list[Block],
+    warnings: list[str],
+    *,
+    title: str = "시간표",
+    max_cell_width: int = 18,
+) -> str:
+    """Block 목록 → 터미널 요일×시간 텍스트 격자 문자열 (SPR-117).
+
+    행 = 강의 시작 시각(전체 블록의 시작 시각 합집합, 정렬). 셀 = 해당 시각에
+    시작하는 강의명(충돌은 '⚠' 접두). 셀 폭은 한글 2칸 기준으로 정렬한다.
+    격자 아래에 수업 목록(시간·강의실·교수), 시간 충돌 목록, 파싱 경고를
+    함께 출력해 잘린 셀 정보를 보완한다.
+    """
+    days = _render_days(blocks)
+    starts = sorted({b.start_min for b in blocks})
+
+    by_cell: dict[tuple[int, str], list[Block]] = {}
+    for block in blocks:
+        by_cell.setdefault((block.start_min, block.day), []).append(block)
+
+    # 셀 폭: 요일 헤더·강의명(⚠ 포함) 중 최대값 (상한 적용)
+    content_widths = [_display_width(day) for day in days]
+    for day_blocks in by_cell.values():
+        names = " + ".join(
+            ("⚠ " if b.is_conflict else "") + (b.name or b.code)
+            for b in day_blocks
+        )
+        content_widths.append(_display_width(names))
+    cell_width = min(max(content_widths, default=1), max_cell_width)
+
+    gutter_w = max(
+        _display_width("시간"),
+        max((_display_width(_format_minutes(s)) for s in starts), default=0),
+    )
+
+    def fmt_cell(day: str, start: int) -> str:
+        day_blocks = by_cell.get((start, day))
+        if not day_blocks:
+            return " " * cell_width
+        text = " + ".join(
+            ("⚠ " if b.is_conflict else "") + (b.name or b.code)
+            for b in day_blocks
+        )
+        return _pad_display(_truncate_display(text, cell_width), cell_width)
+
+    lines: list[str] = []
+    if title:
+        lines.append(title)
+
+    conflict_pairs = _overlap_pairs(blocks)
+    conflict_blocks = sum(1 for b in blocks if b.is_conflict)
+    if conflict_pairs:
+        summary = (
+            f"총 {len(blocks)}개 수업 블록 · "
+            f"시간 충돌 {len(conflict_pairs)}건 (블록 {conflict_blocks}개)"
+        )
+    else:
+        summary = f"총 {len(blocks)}개 수업 블록 · 시간 충돌 없음"
+    lines.append(summary)
+
+    header = (
+        _pad_display("시간", gutter_w)
+        + " | "
+        + " | ".join(_pad_display(day, cell_width) for day in days)
+    )
+    lines.append(header)
+    lines.append("-" * _display_width(header))
+
+    for start in starts:
+        label = _pad_display(_format_minutes(start), gutter_w)
+        cells = " | ".join(fmt_cell(day, start) for day in days)
+        lines.append(label + " | " + cells)
+
+    if not blocks:
+        lines.append("표시할 강의가 없습니다.")
+
+    if blocks:
+        lines.append("")
+        lines.append("수업 목록")
+        day_index = {day: i for i, day in enumerate(days)}
+        ordered = sorted(
+            blocks, key=lambda b: (day_index.get(b.day, 99), b.start_min, b.code)
+        )
+        for block in ordered:
+            parts = [
+                (
+                    f"{block.day} {_format_minutes(block.start_min)}-"
+                    f"{_format_minutes(block.end_min)}"
+                )
+            ]
+            if block.room:
+                parts.append(block.room)
+            if block.professor:
+                parts.append(block.professor)
+            marker = "⚠ " if block.is_conflict else ""
+            lines.append(
+                f"  {marker}[{block.name or block.code} {block.code}] "
+                + " · ".join(parts)
+            )
+
+    if conflict_pairs:
+        lines.append("")
+        lines.append(f"⚠ 시간 충돌 {len(conflict_pairs)}건")
+        for a, b in conflict_pairs:
+            overlap_start = max(a.start_min, b.start_min)
+            overlap_end = min(a.end_min, b.end_min)
+            lines.append(
+                f"  {a.day} {_format_minutes(overlap_start)}-"
+                f"{_format_minutes(overlap_end)} · "
+                f"{a.name or a.code} ({a.code}) ↔ {b.name or b.code} ({b.code})"
+            )
+
+    if warnings:
+        lines.append("")
+        lines.append("파싱 경고 (표시 제외 강의 가능)")
+        for warning in warnings:
+            lines.append(f"  · {warning}")
+
+    return "\n".join(lines) + "\n"
+
+
 DEFAULT_OUT_FILENAME = "timetable.html"
 
 
@@ -585,41 +742,60 @@ def resolve_out_path(out_arg: str | None) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="시간표를 정적 HTML로 렌더링합니다 (표준 라이브러리만 사용)."
+        description=(
+            "시간표를 정적 HTML 또는 터미널 텍스트 격자로 렌더링합니다 "
+            "(표준 라이브러리만 사용)."
+        )
     )
     parser.add_argument(
         "input",
         help="강의 dict 목록 JSON 파일 경로 (find_lectures 반환 형태)",
     )
     parser.add_argument(
+        "--format",
+        choices=("html", "text"),
+        default="html",
+        help="출력 형식: html(기본 — 정적 HTML 파일), text(터미널 텍스트 격자)",
+    )
+    parser.add_argument(
         "--out",
         default=None,
         help=(
-            "출력 HTML 경로 (기본: 사용자 캐시 디렉토리 "
+            "출력 경로 (기본 html: 사용자 캐시 디렉토리 "
             "$XDG_CACHE_HOME/soongpt/timetable.html 또는 "
-            "~/.cache/soongpt/timetable.html)"
+            "~/.cache/soongpt/timetable.html / text: stdout)"
         ),
     )
     parser.add_argument(
         "--title",
         default="시간표",
-        help="HTML 제목 (기본: '시간표')",
+        help="제목 (기본: '시간표')",
     )
     parser.add_argument(
         "--open",
         action="store_true",
-        help="렌더링 후 기본 브라우저로 열기",
+        help="HTML 모드에서 렌더링 후 기본 브라우저로 열기",
     )
     args = parser.parse_args(argv)
 
     try:
         lectures = load_lectures(Path(args.input))
         blocks, warnings = build_blocks(lectures)
-        html_str = render_html(blocks, warnings, title=args.title)
     except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
+    if args.format == "text":
+        text = render_text(blocks, warnings, title=args.title)
+        if args.out:
+            out_path = Path(args.out)
+            out_path.write_text(text, encoding="utf-8")
+            print(f"시간표 텍스트 저장: {out_path.resolve()}")
+        else:
+            print(text, end="")
+        return 0
+
+    html_str = render_html(blocks, warnings, title=args.title)
     out_path = resolve_out_path(args.out)
     out_path.write_text(html_str, encoding="utf-8")
 

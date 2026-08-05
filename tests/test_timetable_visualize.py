@@ -5,6 +5,10 @@ skills/soongpt-timetable-visualize/render_timetable.py 를 importlib로 로드�
 모듈은 pytest.ini의 pythonpath(src) 때문에 soongpt_mcp를 import 할 수 있어
 기본적으로 라이브러리 재사용 경로를 탄다. 폴백 경로는 lib 함수를 None으로
 monkeypatch해서 검증한다.
+
+SPR-117 추가: 터미널 텍스트 격자(render_text) 및 --format text CLI 검증.
+졸업사정표 반영 표는 렌더러가 아닌 composer SKILL.md 지침(LLM 생성)으로
+제공되므로 렌더러 테스트에서는 다루지 않는다 (PR #79 critic 반영).
 """
 from __future__ import annotations
 
@@ -553,3 +557,169 @@ def test_main_default_output_not_in_cwd(
     assert out_path.exists()
     assert "알고리즘" in out_path.read_text(encoding="utf-8")
     assert not (tmp_path / "timetable.html").exists()
+
+
+# ── 터미널 텍스트 격자 (SPR-117) ────────────────────────────────────────
+
+
+def test_display_width_korean_two_cols(renderer) -> None:
+    """한글은 2칸, ASCII는 1칸으로 계산 (터미널 정렬 기준)."""
+    assert renderer._display_width("알고리즘") == 8
+    assert renderer._display_width("ABC123") == 6
+    assert renderer._display_width("월") == 2
+    assert renderer._display_width("10:30") == 5
+    assert renderer._display_width("이수 후") == 7
+
+
+def test_truncate_display_reserves_ellipsis(renderer) -> None:
+    """초과 시 마지막 1칸을 '…'로 예약해 자른다 (한글 2칸 고려)."""
+    assert renderer._truncate_display("알고리즘", 8) == "알고리즘"
+    # 6칸 상한: 내용에 5칸(끝 1칸은 '…' 예약)만 쓸 수 있어 "알고" + "…"
+    assert renderer._truncate_display("알고리즘", 6) == "알고…"
+    assert renderer._truncate_display("algorithm", 5) == "algo…"
+    assert renderer._truncate_display("짧음", 10) == "짧음"
+
+
+def test_render_text_grid_structure(renderer) -> None:
+    """헤더(후보명/시간/요일) + 강의명 + 수업 목록 포함."""
+    blocks, warnings = renderer.build_blocks(
+        [_lecture(schedule_room="월 수 10:30-12:00 (베어드홀 01101-김자헌)")]
+    )
+    text = renderer.render_text(blocks, warnings, title="안 A — 3학점")
+    assert text.startswith("안 A — 3학점")
+    assert "시간" in text
+    for day in ("월", "화", "수", "목", "금"):
+        assert day in text
+    assert "10:30" in text
+    assert "알고리즘" in text
+    assert "수업 목록" in text
+    assert "시간 충돌 없음" in text
+
+
+def test_render_text_alignment_uniform(renderer) -> None:
+    """모든 그리드 라인의 표시 폭이 동일해야 정렬이 맞는다 (SPR-117)."""
+    blocks, _ = renderer.build_blocks(
+        [
+            _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164204",
+                name="자료구조",
+                schedule_room="화 09:00-10:30 (숭덕 02108-박은영)",
+            ),
+        ]
+    )
+    text = renderer.render_text(blocks, [])
+    widths = {
+        renderer._display_width(line)
+        for line in text.splitlines()
+        if "|" in line and not line.startswith("-")
+    }
+    assert len(widths) == 1
+
+
+def test_render_text_marks_conflict(renderer) -> None:
+    """충돌 강의는 격자·수업 목록에서 ⚠ 로 강조, 충돌 목록에 쌍 표기."""
+    blocks, _ = renderer.build_blocks(
+        [
+            _lecture(schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164204",
+                name="자료구조",
+                schedule_room="월 11:00-13:00 (숭덕 02108-박은영)",
+            ),
+        ]
+    )
+    text = renderer.render_text(blocks, [])
+    assert "⚠ 알고리즘" in text
+    assert "⚠ 자료구조" in text
+    assert "시간 충돌 1건" in text
+    assert "알고리즘 (2150164203) ↔ 자료구조 (2150164204)" in text
+
+
+def test_render_text_truncates_long_name_in_grid_only(renderer) -> None:
+    """격자 셀은 잘리고, 수업 목록에는 전체 이름이 남는다."""
+    long_name = "이주제는매우긴과목명입니다매우매우"
+    blocks, _ = renderer.build_blocks(
+        [_lecture(name=long_name, schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)")]
+    )
+    text = renderer.render_text(blocks, [])
+    assert "…" in text
+    assert long_name in text  # 수업 목록의 전체 이름
+
+
+def test_render_text_weekend_column(renderer) -> None:
+    """토요일 수업이 있으면 격자에 토 열이 추가된다 (SPR-60)."""
+    blocks, _ = renderer.build_blocks(
+        [_lecture(schedule_room="토 09:00-10:15 (운동장-김자헌)")]
+    )
+    assert "토" in renderer.render_text(blocks, [])
+
+
+def test_render_text_empty(renderer) -> None:
+    text = renderer.render_text([], [])
+    assert "표시할 강의가 없습니다" in text
+    assert "월" in text
+
+
+def test_render_text_warnings_section(renderer) -> None:
+    text = renderer.render_text([], ["파싱 실패: 2150164203"])
+    assert "파싱 경고" in text
+    assert "파싱 실패: 2150164203" in text
+
+
+# ── CLI text 모드 (SPR-117) ─────────────────────────────────────────────
+
+
+def test_main_text_prints_grid_to_stdout(renderer, tmp_path: Path, capsys) -> None:
+    """--format text는 stdout으로 격자를 출력하고 파일을 만들지 않는다."""
+    input_path = tmp_path / "candidate.json"
+    input_path.write_text(
+        '[{"code": "2150164203", "name": "알고리즘", '
+        '"schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)"}]',
+        encoding="utf-8",
+    )
+    rc = renderer.main([str(input_path), "--format", "text"])
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "알고리즘" in captured.out
+    assert "시간" in captured.out
+
+
+def test_main_text_writes_out_when_requested(renderer, tmp_path: Path) -> None:
+    input_path = tmp_path / "candidate.json"
+    input_path.write_text("[]", encoding="utf-8")
+    out_path = tmp_path / "out.txt"
+    rc = renderer.main(
+        [str(input_path), "--format", "text", "--out", str(out_path)]
+    )
+    assert rc == 0
+    assert out_path.exists()
+    assert "표시할 강의가 없습니다" in out_path.read_text(encoding="utf-8")
+
+
+def test_main_text_ignores_open(renderer, tmp_path: Path, monkeypatch) -> None:
+    """text 모드에서 --open은 무시된다 (브라우저 미오픈)."""
+    input_path = tmp_path / "candidate.json"
+    input_path.write_text("[]", encoding="utf-8")
+    opened: list[str] = []
+    monkeypatch.setattr(renderer.webbrowser, "open", lambda uri: opened.append(uri))
+    rc = renderer.main([str(input_path), "--format", "text", "--open"])
+    assert rc == 0
+    assert opened == []
+
+
+def test_main_html_explicit_still_default(renderer, tmp_path: Path) -> None:
+    """--format html 명시 시 기존 HTML 동작 그대로 (회귀 가드)."""
+    input_path = tmp_path / "candidate.json"
+    input_path.write_text(
+        '[{"code": "2150164203", "name": "알고리즘", '
+        '"schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)"}]',
+        encoding="utf-8",
+    )
+    out_path = tmp_path / "out.html"
+    rc = renderer.main(
+        [str(input_path), "--format", "html", "--out", str(out_path)]
+    )
+    assert rc == 0
+    assert out_path.exists()
+    assert "<html" in out_path.read_text(encoding="utf-8")
