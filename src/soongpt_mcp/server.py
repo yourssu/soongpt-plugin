@@ -42,6 +42,7 @@ from .lectures_cache import (
     group_key_for,
     is_lectures_cache_fresh,
     save_lectures_group,
+    total_lectures_count,
 )
 from .lectures_cache import (
     load_lectures_cache as _load_lectures_cache_file,
@@ -550,7 +551,10 @@ async def load_lectures_cache(year: int, semester: str) -> dict:
     학기(semester): "1" | "2" | "summer" | "winter"
 
     반환: { year, semester, groups: {group_key: {category_type, params, lectures, count, error}},
-            count, _cache: {source, cached_at, age_days} }
+            count, total_lectures, _cache: {source, cached_at, age_days} }
+    - `count` = **그룹 수** (len(groups)). 다른 도구들의 count 관례와 동일.
+    - `total_lectures` = **총 강의 수** (모든 groups의 count 합, SPR-78).
+      요약 표시/판단은 이 필드를 쓴다. error 그룹은 count=0이라 합산에서 제외.
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
@@ -560,6 +564,7 @@ async def load_lectures_cache(year: int, semester: str) -> dict:
             "semester": semester,
             "groups": {},
             "count": 0,
+            "total_lectures": 0,
             "_cache": {"source": "miss", "cached_at": None, "age_days": None},
         }
 
@@ -570,6 +575,7 @@ async def load_lectures_cache(year: int, semester: str) -> dict:
         "semester": cache.semester,
         "groups": _jsonify(cache.groups),
         "count": len(cache.groups),
+        "total_lectures": total_lectures_count(cache),
         "_cache": {
             "source": source,
             "cached_at": cached_at.isoformat(),

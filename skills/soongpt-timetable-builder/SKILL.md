@@ -70,7 +70,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 ### 4. 들을 수 있는 과목 조회 (위임: `soongpt-available-lectures`)
 
 - `load_lectures_cache(year, semester)` 호출
-- 스킵 조건 만족 시: 캐시 요약(총 강의 수 등)만 보여주고 5단계로
+- 스킵 조건 만족 시: 캐시 요약(총 강의 수 = `total_lectures`, 그룹 수 = `count` — SPR-78)만 보여주고 5단계로
 - `"stale"`이면 사용자에게 새로고침 여부를 물어본 뒤 결정, `"miss"`면 바로 위임
 - 위임 시 `soongpt-available-lectures` 스킬이 전체 진입 절차(프로필 필수 필드 체크 포함)를 처음부터 수행
 

@@ -18,6 +18,7 @@ from soongpt_mcp.lectures_cache import (
     merge_lectures_groups,
     save_lectures_cache,
     save_lectures_group,
+    total_lectures_count,
 )
 
 
@@ -167,6 +168,68 @@ def test_different_semesters_isolated(isolated_root: Path) -> None:
     assert loaded1 is not None and loaded2 is not None
     assert loaded1.semester == "1"
     assert loaded2.semester == "2"
+
+
+# ---------------------------------------------------------------------------
+# SPR-78: total_lectures_count — count(그룹 수)와 total_lectures(강의 수) 분리.
+# ---------------------------------------------------------------------------
+
+def test_total_lectures_count_sums_group_counts() -> None:
+    """각 그룹의 count 합 = 총 강의 수."""
+    cache = LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "major_primary": LectureGroupEntry(
+                category_type="major",
+                params={"collage": "IT대학", "department": "컴퓨터학부"},
+                lectures=[], count=45,
+            ),
+            "optional_elective_all": LectureGroupEntry(
+                category_type="optional_elective",
+                params={"category": "전체"},
+                lectures=[], count=337,
+            ),
+            "chapel": LectureGroupEntry(
+                category_type="chapel", params={"lecture_name": "비전채플"},
+                lectures=[], count=3,
+            ),
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+    assert total_lectures_count(cache) == 45 + 337 + 3
+
+
+def test_total_lectures_count_ignores_error_groups() -> None:
+    """error 그룹은 count=0이라 합산에서 자연히 제외된다."""
+    cache = LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "major_primary": LectureGroupEntry(
+                category_type="major",
+                params={"collage": "IT대학", "department": "컴퓨터학부"},
+                lectures=[], count=45,
+            ),
+            "major_double": LectureGroupEntry(
+                category_type="major",
+                params={"collage": "IT대학", "department": "전자정보공학부"},
+                lectures=[], count=0, error="일시적 오류",
+            ),
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+    assert total_lectures_count(cache) == 45
+
+
+def test_total_lectures_count_empty_groups_is_zero() -> None:
+    cache = LecturesCache(
+        year=2026,
+        semester="1",
+        groups={},
+        cached_at=datetime.now(timezone.utc),
+    )
+    assert total_lectures_count(cache) == 0
 
 
 # ---------------------------------------------------------------------------
