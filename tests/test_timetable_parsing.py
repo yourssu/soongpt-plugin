@@ -20,6 +20,7 @@ from soongpt_mcp.timetable_parsing import (
     coerce_conflict_lecture,
     duplicate_slot_raws,
     extract_credits,
+    filter_parsed_lectures,
     find_conflicts,
     has_time_conflict,
     parse_field_tags,
@@ -660,6 +661,121 @@ def test_find_conflicts_same_subject_hint() -> None:
     conflicts = find_conflicts([a, b])
     assert len(conflicts) == 1
     assert "과목 중복" in conflicts[0].message
+
+
+# ── SPR-87: 부분 조회 필터 (filter_parsed_lectures) ─────────────
+
+
+def _parsed_multi_category() -> list[ParsedLecture]:
+    """카테고리 다양성 샘플 — 부분 조회 필터 테스트용."""
+    return parse_lectures(
+        [
+            _lecture(code="2150164203", name="전기기초", category="전기-컴퓨터학부"),
+            _lecture(code="2150164204", name="전기심화", category="전기-컴퓨터학부"),
+            _lecture(code="2150164301", name="전공필수", category="전필-컴퓨터학부"),
+            _lecture(code="2150164401", name="교양필수", category="교필"),
+            _lecture(code="2150078501", name="비전채플", category="채플"),
+            _lecture(code="3161011001", name="교양선택", category="교선"),
+            _lecture(code="9999999999", name="카테고리없음", category=None),
+        ]
+    )
+
+
+def test_filter_parsed_lectures_no_filter_returns_all() -> None:
+    """필터 미지정 → 전체 그대로 (하위 호환)."""
+    parsed = _parsed_multi_category()
+    assert filter_parsed_lectures(parsed) == parsed
+    assert (
+        filter_parsed_lectures(
+            parsed, codes=None, subject_keys=None, category_prefixes=None
+        )
+        == parsed
+    )
+
+
+def test_filter_parsed_lectures_codes_exact() -> None:
+    """codes → 정확 조회 (목록 순서 유지)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(parsed, codes=["2150164203", "2150078501"])
+    assert [p.code for p in result] == ["2150164203", "2150078501"]
+
+
+def test_filter_parsed_lectures_subject_keys_all_divisions() -> None:
+    """subject_keys → 분반 그룹 전체 (subject_key = code[:-2])."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(parsed, subject_keys=["21501642"])
+    assert [p.code for p in result] == ["2150164203", "2150164204"]
+
+
+def test_filter_parsed_lectures_category_prefixes() -> None:
+    """category_prefixes → prefix 시작 일치 (전기- → 전기-컴퓨터학부)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(parsed, category_prefixes=["전기-", "채플"])
+    codes = [p.code for p in result]
+    assert "2150164203" in codes
+    assert "2150164204" in codes
+    assert "2150078501" in codes
+    # prefix 불일치 — 전필-/교필/교선은 걸러진다
+    assert "2150164301" not in codes
+    assert "2150164401" not in codes
+    assert "3161011001" not in codes
+
+
+def test_filter_parsed_lectures_union_of_conditions() -> None:
+    """여러 조건 함께 전달 → 합집합(OR)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(
+        parsed,
+        codes=["3161011001"],
+        subject_keys=["21500785"],
+        category_prefixes=["전필-"],
+    )
+    assert {p.code for p in result} == {
+        "3161011001",
+        "2150078501",
+        "2150164301",
+    }
+
+
+def test_filter_parsed_lectures_category_none_excluded() -> None:
+    """category가 None인 강의는 prefix 매칭에서 제외 (startsWith 오류 방지)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(parsed, category_prefixes=["교"])
+    codes = [p.code for p in result]
+    assert "9999999999" not in codes
+    assert "2150164401" in codes  # "교필" → prefix "교" 일치
+    assert "3161011001" in codes  # "교선" → prefix "교" 일치
+
+
+def test_filter_parsed_lectures_gyojik_jeongong_excluded() -> None:
+    """교직전공- 은 필수 prefix(전기-/전필-/교필/채플)에 걸리지 않는다 (회귀 방지).
+
+    composer 2번 단계가 `category_prefixes=["전기-", "전필-", "교필", "채플"]`로
+    필수+채플을 조회할 때 `교직전공-<학부명>` 강의가 섞여 나오면 안 된다.
+    """
+    parsed = parse_lectures(
+        [
+            _lecture(code="2150164203", name="전기기초", category="전기-컴퓨터학부"),
+            _lecture(code="2150999001", name="교직전공", category="교직전공-컴퓨터학부"),
+            _lecture(code="2150078501", name="비전채플", category="채플"),
+        ]
+    )
+    result = filter_parsed_lectures(
+        parsed, category_prefixes=["전기-", "전필-", "교필", "채플"]
+    )
+    codes = [p.code for p in result]
+    assert "2150164203" in codes
+    assert "2150078501" in codes
+    assert "2150999001" not in codes  # 교직전공- 은 제외
+
+
+def test_filter_parsed_lectures_empty_strings_ignored() -> None:
+    """빈 문자열 필터값은 유효하지 않은 입력으로 무시 — 전체 반환 (하위 호환)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(
+        parsed, codes=[""], subject_keys=[""], category_prefixes=[""]
+    )
+    assert result == parsed
 
 
 # ── server 도구: parse_lectures_cache / check_timetable_conflicts ──────

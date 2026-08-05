@@ -135,7 +135,8 @@ find_lectures(year, semester, category_type="optional_elective",
   줄바꿈으로 분해한 태그 줄 리스트)와 `profile.entered_year`로 처리한다.
 - **이 응답은 요약 모드(`summary=True`)로 받는다** (약 337강의 — 상세 응답은
   220KB). 서버가 lectures를 생략하고 `count`/`_cache`만 반환하므로 컨텍스트를
-  아끼고, 상세는 캐시에 저장된 상태로 composer가 `parse_lectures_cache` 결과를
+  아끼고, 상세는 캐시에 저장된 상태로 composer가
+  `parse_lectures_cache(category_prefixes=["교선"])` 부분 조회 결과를
   학번 매칭으로 추려 올리는 방식으로 처리(→ composer 스킬).
 
 ##### 3-B-2. 교양필수 전체 과목명 (필수)

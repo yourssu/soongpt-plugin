@@ -419,3 +419,169 @@ async def test_parse_lectures_cache_summary_stale() -> None:
     assert resp["parsed_count"] == 4
     assert "guidance" in resp
     assert resp["summary"] is True
+
+
+# ── SPR-87: 부분 조회 옵션 (codes / subject_keys / category_prefixes) ──
+
+
+def _build_category_cache() -> LecturesCache:
+    """카테고리 다양성을 담은 캐시 — 부분 조회(SPR-87) 테스트용."""
+    return LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "major_IT대학_컴퓨터학부": LectureGroupEntry(
+                category_type="major",
+                params={"collage": "IT대학", "department": "컴퓨터학부"},
+                lectures=[
+                    {
+                        "code": "2150164203",
+                        "name": "전기기초",
+                        "category": "전기-컴퓨터학부",
+                        "schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)",
+                    },
+                    {
+                        "code": "2150164301",
+                        "name": "전공필수",
+                        "category": "전필-컴퓨터학부",
+                        "schedule_room": "화 11:00-13:00 (숭덕 02108-박은영)",
+                    },
+                ],
+                count=2,
+                error=None,
+            ),
+            "chapel": LectureGroupEntry(
+                category_type="chapel",
+                params={"lecture_name": "비전채플"},
+                lectures=[
+                    {
+                        "code": "2150078501",
+                        "name": "비전채플",
+                        "category": "채플",
+                        "schedule_room": "수 15:00-16:00 (베어드홀 A)",
+                    },
+                ],
+                count=1,
+                error=None,
+            ),
+            "optional_elective_all": LectureGroupEntry(
+                category_type="optional_elective",
+                params={"category": "전체"},
+                lectures=[
+                    {
+                        "code": "3161011001",
+                        "name": "교양선택",
+                        "category": "교선",
+                        "schedule_room": "목 13:00-14:15 (진리 A)",
+                    },
+                ],
+                count=1,
+                error=None,
+            ),
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_partial_category_prefixes() -> None:
+    """category_prefixes → parsed만 필터, subject_groups/stats는 전체 기준."""
+    cache_mod.save_lectures_cache(_build_category_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["전기-", "채플"]
+    )
+
+    codes = [p["code"] for p in resp["parsed"]]
+    assert "2150164203" in codes  # 전기-컴퓨터학부
+    assert "2150078501" in codes  # 채플
+    assert "2150164301" not in codes  # 전필-은 prefix 불일치
+    assert "3161011001" not in codes  # 교선 제외
+    assert resp["parsed_count"] == 2
+    assert resp["summary"] is False
+    # 인덱스/stats는 전체 기준 — 컴포저가 분반 인덱스는 전부 가진다
+    assert set(resp["subject_groups"].keys()) >= {
+        "21501642",
+        "21501643",
+        "21500785",
+        "31610110",
+    }
+    assert resp["stats"]["total"] == 4
+    assert resp["filters"]["category_prefixes"] == ["전기-", "채플"]
+    assert resp["filters"]["codes"] is None
+    assert resp["filters"]["subject_keys"] is None
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_partial_subject_keys() -> None:
+    """subject_keys → 분반 그룹 전체 반환."""
+    cache_mod.save_lectures_cache(_build_cache())  # chapel 2150078501/02
+
+    resp = await server.parse_lectures_cache(2026, "1", subject_keys=["21500785"])
+
+    assert [p["code"] for p in resp["parsed"]] == ["2150078501", "2150078502"]
+    assert resp["parsed_count"] == 2
+    assert resp["filters"]["subject_keys"] == ["21500785"]
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_partial_codes() -> None:
+    """codes → 정확 조회 + 필터 echo + 전체 subject_groups 유지."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.parse_lectures_cache(2026, "1", codes=["CS10101"])
+
+    assert [p["code"] for p in resp["parsed"]] == ["CS10101"]
+    assert resp["parsed_count"] == 1
+    assert resp["filters"] == {
+        "codes": ["CS10101"],
+        "subject_keys": None,
+        "category_prefixes": None,
+    }
+    # 필터로 parsed에 없는 분반도 subject_groups 인덱스에는 남는다
+    assert resp["subject_groups"]["21500785"] == ["2150078501", "2150078502"]
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_no_filter_backward_compat() -> None:
+    """필터 미지정 → 전체 parsed + filters 모두 None (하위 호환)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.parse_lectures_cache(2026, "1")
+
+    assert len(resp["parsed"]) == 4
+    assert resp["parsed_count"] == 4
+    assert resp["filters"] == {
+        "codes": None,
+        "subject_keys": None,
+        "category_prefixes": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_partial_summary_omits_parsed() -> None:
+    """summary=True + 필터 → parsed 생략, 필터는 필터된 수로 parsed_count 반영."""
+    cache_mod.save_lectures_cache(_build_category_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", summary=True, category_prefixes=["교선"]
+    )
+
+    assert "parsed" not in resp
+    assert resp["summary"] is True
+    assert resp["parsed_count"] == 1  # 교선 1강의만 필터됨
+    assert resp["stats"]["total"] == 4  # stats는 전체
+    assert resp["filters"]["category_prefixes"] == ["교선"]
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_partial_miss() -> None:
+    """miss 경로도 filters echo 포함."""
+    resp = await server.parse_lectures_cache(
+        2026, "2", category_prefixes=["채플"]
+    )
+
+    assert resp["_cache"]["source"] == "miss"
+    assert resp["parsed"] == []
+    assert resp["parsed_count"] == 0
+    assert resp["filters"]["category_prefixes"] == ["채플"]

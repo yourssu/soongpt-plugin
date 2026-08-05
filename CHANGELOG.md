@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `parse_lectures_cache` 부분 조회 옵션 — `codes`/`subject_keys`/`category_prefixes`로 parsed를 추려 반환. `subject_groups`/`stats`는 전체 기준 유지, 기본값은 기존 동작 (SPR-87) (#55)
+
 ## [1.2.0] - 2026-08-05
 
 개선 워크플로우 1차 (Iteration 1·2 실측 기반) — 대용량 응답이 LLM 컨텍스트를 통과하지 않도록 요약 옵션 추가, 미개설/중복 데이터 처리 통일, 시각화 산출물이 프로젝트 폴더를 오염하지 않도록 정리.

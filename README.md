@@ -104,7 +104,7 @@ bash scripts/run-server.sh
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | 즉시 |
-| `parse_lectures_cache` | 강의 캐시를 시간표 파싱 결과로 변환 — parsed + subject_groups(분반 그룹) + stats. `summary=True`면 parsed 생략 (SPR-76) | 즉시 |
+| `parse_lectures_cache` | 강의 캐시를 시간표 파싱 결과로 변환 — parsed + subject_groups(분반 그룹) + stats. `summary=True`면 parsed 생략 (SPR-76). `codes`/`subject_keys`/`category_prefixes`로 parsed 부분 조회 (SPR-87) | 즉시 |
 | `check_timetable_conflicts` | 단일 후보 강의 리스트의 시간 충돌 검사 (30개 초과 시 오류) | 즉시 |
 | `load_timetable_candidates` | 저장된 시간표 후보 로드 (TTL 없음, `_cache.source`로 hit/miss 구분) | 즉시 |
 | `save_timetable_candidate` | 후보 1건 저장 — code 존재 검증, 같은 name이면 replace | 즉시 |
