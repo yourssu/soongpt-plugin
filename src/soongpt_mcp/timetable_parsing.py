@@ -370,6 +370,108 @@ def filter_parsed_lectures(
     return [lecture for lecture in parsed if _match(lecture)]
 
 
+# ── SPR-99: 교선 field_tags 학번(entered_year) 필터 ─────────────────────
+#
+# 교양선택 "전체" 조회의 각 강의 field_tags에는 전 학번 분야가 줄 단위로
+# 연결돼 온다. 예: "['23이후]문화·예술" / "['20,'21~'22]의사소통/글로벌" /
+# "['19]..." / "['16-'18]..." / "['15이전]...". 2자리 학번은 2000+YY로 해석한다.
+# 주의: USAINT 원본 첫 줄은 ASCII 아포스트로피(')가 아니라 컬리 인용부호(‘,
+# U+2018)로 온다 — 매칭 전 정규화 필수.
+
+
+_TAG_BRACKET_RE = re.compile(r"\s*\[(.*?)\]")
+
+
+def _normalize_quotes(text: str) -> str:
+    """인용 부호 정규화 — ‘ ’(U+2018/2019 컬리) → '(ASCII)."""
+    return text.replace("‘", "'").replace("’", "'")
+
+
+def _has_entrance_tag(line: str) -> bool:
+    """줄에 학번 태그(`'YY`)가 있는지 — 필터 판정용.
+
+    "['23이후]문화·예술" → True. "기독교과목" / "[4차]" → False.
+    """
+    m = _TAG_BRACKET_RE.match(line)
+    if not m:
+        return False
+    return re.search(r"'\d{2}", _normalize_quotes(m.group(1))) is not None
+
+
+def _line_covers_entered_year(line: str, entered_year: int) -> bool:
+    """학번 태그 줄(예: "['23이후]문화·예술")이 entered_year를 포함하는지.
+
+    태그 범위 해석 (2자리 학번 = 2000+YY):
+      - 'YY이후   → entered_year >= 2000+YY
+      - 'YY이전   → entered_year <= 2000+YY
+      - 'YY~'ZZ / 'YY-'ZZ → 2000+YY <= entered_year <= 2000+ZZ
+      - 'YY       → entered_year == 2000+YY
+    쉼표로 여러 학번 태그가 한 줄에 있으면('20,'21~'22) 하나라도 매칭하면 True.
+    학번 태그가 없는 줄(예: "기독교과목", "[4차]")은 False.
+    """
+    m = _TAG_BRACKET_RE.match(line)
+    if not m:
+        return False
+    inner = _normalize_quotes(m.group(1))
+    for token in (t.strip() for t in inner.split(",") if t.strip()):
+        single = re.fullmatch(r"'(\d{2})(이후|이전)?", token)
+        if single:
+            yy = 2000 + int(single.group(1))
+            suffix = single.group(2)
+            if suffix == "이후" and entered_year >= yy:
+                return True
+            if suffix == "이전" and entered_year <= yy:
+                return True
+            if suffix is None and entered_year == yy:
+                return True
+            continue
+        span = re.fullmatch(r"'(\d{2})[~-]'(\d{2})", token)
+        if span:
+            lo = 2000 + int(span.group(1))
+            hi = 2000 + int(span.group(2))
+            if lo <= entered_year <= hi:
+                return True
+    return False
+
+
+def field_tags_for_entered_year(
+    field_tags: list[str], entered_year: int
+) -> list[str]:
+    """field_tags 중 entered_year에 해당하는 학번 태그 줄만 남긴다."""
+    return [
+        line for line in field_tags if _line_covers_entered_year(line, entered_year)
+    ]
+
+
+def filter_parsed_by_entered_year(
+    parsed: list[ParsedLecture], entered_year: int
+) -> list[ParsedLecture]:
+    """entered_year 기준으로 parsed를 추린다 (SPR-99).
+
+    서버 측 학번 필터 — composer 3단계가 교선 ~337강의 parsed 전체(~300KB,
+    50K 파일 스필)를 받지 않고 내 학번에 해당하는 줄(field_tags)만 가진 강의를
+    미리 받게 한다:
+      - 학번 태그가 있는 강의: 매칭 줄이 하나라도 있으면 유지 + field_tags를
+        매칭 줄만으로 교체. 매칭 줄이 없으면(해당 학번 미개설) 제외.
+      - 학번 태그가 없는 강의(전공 "[4차]", field 없음): 판정 불가 → 보수적으로
+        유지하되 field_tags는 그대로 둔다 (교선 외 카테고리에 실수로 걸려도
+        강의가 통째로 사라지지 않게).
+
+    순수 함수 — 입력 parsed를 변경하지 않고 model_copy로 새 리스트를 만든다.
+    """
+    result: list[ParsedLecture] = []
+    for lecture in parsed:
+        has_tag = any(_has_entrance_tag(t) for t in lecture.field_tags)
+        if has_tag:
+            matched = field_tags_for_entered_year(lecture.field_tags, entered_year)
+            if not matched:
+                continue  # 학번 태그 있는데 매칭 없음 → 해당 학번엔 안 열림
+            result.append(lecture.model_copy(update={"field_tags": matched}))
+        else:
+            result.append(lecture)  # 판정 불가 → 유지
+    return result
+
+
 def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
     """충돌 검사 입력을 ParsedLecture로 완화 변환 (check_timetable_conflicts용).
 

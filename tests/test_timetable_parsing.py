@@ -20,6 +20,8 @@ from soongpt_mcp.timetable_parsing import (
     coerce_conflict_lecture,
     duplicate_slot_raws,
     extract_credits,
+    field_tags_for_entered_year,
+    filter_parsed_by_entered_year,
     filter_parsed_lectures,
     find_conflicts,
     has_time_conflict,
@@ -776,6 +778,117 @@ def test_filter_parsed_lectures_empty_strings_ignored() -> None:
         parsed, codes=[""], subject_keys=[""], category_prefixes=[""]
     )
     assert result == parsed
+
+
+# ── SPR-99: 교선 field_tags 학번(entered_year) 필터 ──────────────────
+
+
+_GYOSEON_FIELD_ALL = (
+    "['23이후]문화·예술\n"
+    "['20,'21~'22]의사소통/글로벌\n"
+    "['19]기초역량-한국어의사소통\n"
+    "['16-'18]기초역량\n"
+    "['15이전]창의성과의사소통능력"
+)
+
+
+def _parsed_gyoseon() -> list[ParsedLecture]:
+    """교선 학번 필터 테스트용 — 전 학번 태그 + 신학번 전용 + 구학번 전용 + 전공."""
+    return parse_lectures(
+        [
+            _lecture(
+                code="3161011001",
+                name="한류와대중문화",
+                category="교선",
+                field=_GYOSEON_FIELD_ALL,
+            ),
+            _lecture(
+                code="3161011002",
+                name="신학번전용",
+                category="교선",
+                field="['23이후]과학·기술",
+            ),
+            _lecture(
+                code="3161011003",
+                name="구학번전용",
+                category="교선",
+                field="['16-'18]기초역량\n['15이전]창의",
+            ),
+            _lecture(code="2150164203", name="전공", category="전기-컴퓨터학부"),
+        ]
+    )
+
+
+def test_field_tags_for_entered_year_ranges() -> None:
+    """태그 범위 해석 — 이후/이전/대역/단일/쉼표/컬리 인용부호/비학번 줄."""
+    assert field_tags_for_entered_year(["['23이후]문화·예술"], 2023) == [
+        "['23이후]문화·예술"
+    ]
+    assert field_tags_for_entered_year(["['23이후]문화·예술"], 2022) == []
+    # 쉼표 다중 태그 — 하나라도 매칭하면 해당 줄 매칭
+    assert field_tags_for_entered_year(["['20,'21~'22]의사소통"], 2020) == [
+        "['20,'21~'22]의사소통"
+    ]
+    assert field_tags_for_entered_year(["['20,'21~'22]의사소통"], 2021) == [
+        "['20,'21~'22]의사소통"
+    ]
+    assert field_tags_for_entered_year(["['20,'21~'22]의사소통"], 2019) == []
+    assert field_tags_for_entered_year(["['19]기초역량"], 2019) == ["['19]기초역량"]
+    assert field_tags_for_entered_year(["['19]기초역량"], 2020) == []
+    # 대역(- / ~)
+    assert field_tags_for_entered_year(["['16-'18]기초역량"], 2017) == [
+        "['16-'18]기초역량"
+    ]
+    assert field_tags_for_entered_year(["['16-'18]기초역량"], 2019) == []
+    assert field_tags_for_entered_year(["['15이전]창의"], 2014) == ["['15이전]창의"]
+    assert field_tags_for_entered_year(["['15이전]창의"], 2016) == []
+    # 컬리 인용부호 (USAINT 원본 첫 줄 — ‘ ) → ASCII 정규화로 매칭
+    assert field_tags_for_entered_year(["[‘23이후]문화·예술"], 2023) == [
+        "[‘23이후]문화·예술"
+    ]
+    # 학번 태그 없는 줄 — 매칭 아님
+    assert field_tags_for_entered_year(["기독교과목", "[4차]"], 2023) == []
+
+
+def test_filter_parsed_by_entered_year_trims_and_drops() -> None:
+    """학번 매칭 강의 유지 + field_tags를 매칭 줄만으로, 비매칭은 제외.
+
+    전 학번 태그 강의는 2023에 매칭되므로 유지, 구학번 전용은 2023에 안 열려
+    제외. 학번 태그가 없는 전공([4차])은 판정 불가라 보수적으로 유지.
+    """
+    parsed = _parsed_gyoseon()
+    out = filter_parsed_by_entered_year(parsed, 2023)
+    codes = [p.code for p in out]
+    assert "3161011001" in codes  # 전 학번 태그 → 2023 매칭
+    assert "3161011002" in codes  # 신학번 전용 → 2023 매칭
+    assert "3161011003" not in codes  # 구학번 전용 → 2023 비매칭 제외
+    assert "2150164203" in codes  # [4차] → 학번 태그 없음, 보수 유지
+    # field_tags는 매칭 줄만으로 정리 (컬리 원본은 그대로)
+    g1 = next(p for p in out if p.code == "3161011001")
+    assert g1.field_tags == ["['23이후]문화·예술"]
+    # 학번 태그 없는 강의는 원본 field_tags 그대로 유지
+    major = next(p for p in out if p.code == "2150164203")
+    assert major.field_tags == ["[4차]"]
+
+
+def test_filter_parsed_by_entered_year_older_year() -> None:
+    """구학번 사용자(2017) — '16-'18 대역 줄 매칭, 신학번 전용은 제외."""
+    parsed = _parsed_gyoseon()
+    out = filter_parsed_by_entered_year(parsed, 2017)
+    codes = [p.code for p in out]
+    assert "3161011001" in codes
+    assert "3161011002" not in codes  # 신학번 전용 → 2017 비매칭 제외
+    assert "3161011003" in codes
+    g3 = next(p for p in out if p.code == "3161011003")
+    assert g3.field_tags == ["['16-'18]기초역량"]
+
+
+def test_filter_parsed_by_entered_year_pure() -> None:
+    """입력 parsed를 변경하지 않는다 (model_copy로 새 리스트 생성)."""
+    parsed = _parsed_gyoseon()
+    before = [p.field_tags[:] for p in parsed]
+    filter_parsed_by_entered_year(parsed, 2023)
+    assert [p.field_tags for p in parsed] == before
 
 
 # ── server 도구: parse_lectures_cache / check_timetable_conflicts ──────

@@ -78,9 +78,11 @@ from .timetable_cache import (
     save_timetable_cache,
 )
 from .timetable_parsing import (
+    ParsedLecture,
     build_subject_groups,
     coerce_conflict_lecture,
     duplicate_slot_raws,
+    filter_parsed_by_entered_year,
     filter_parsed_lectures,
     find_conflicts,
     parse_lectures,
@@ -100,6 +102,23 @@ def _jsonify(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_jsonify(x) for x in obj]
     return obj
+
+
+def _compact_lecture(lecture: ParsedLecture) -> dict[str, Any]:
+    """entered_year 조회용 교선 후보 컴팩트 dict (SPR-99).
+
+    Flex 후보 좁히기에 필요한 최소 — code/name/credits + 매칭 field_tags.
+    slots·raw·target 등 시간 상세는 `codes=[...]` 지연 조회로 재확보한다.
+    이 축소로 337강의 교선 응답을 50K 파일 스필 임계값 미만(~32~38KB)으로
+    유지한다. 컴팩트 항목은 slots가 없어 `check_timetable_conflicts`에
+    그대로 넘기면 안 된다 (ValueError — coerce_conflict_lecture가 명시).
+    """
+    return {
+        "code": lecture.code,
+        "name": lecture.name,
+        "credits": lecture.credits,
+        "field_tags": lecture.field_tags,
+    }
 
 
 # SPR-67: 강의시간표(course_schedule) 계열 도구의 동시성 상한 세마포어.
@@ -775,6 +794,7 @@ async def parse_lectures_cache(
     subject_keys: list[str] | None = None,
     category_prefixes: list[str] | None = None,
     include_subject_groups: bool = True,
+    entered_year: int | None = None,
 ) -> dict:
     """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
 
@@ -810,15 +830,31 @@ async def parse_lectures_cache(
     (분반 인덱스·파싱 헬스는 전체가 필요). parsed만 필터된다.
     필터를 안 주면 기존과 동일하게 전체 parsed를 반환한다 (하위 호환).
 
+    entered_year (SPR-99): 입학연도 지정 시 **응답 전 서버 측 field_tags 학번
+    필터**를 적용한다 — 교양선택 "전체"처럼 큰 카테고리(~337강의)의 parsed
+    전체(50K 파일 스필)를 받지 않고, `field_tags`에서 entered_year에 해당하는
+    줄을 가진 강의만 반환한다. 지정 시 parsed 항목은 **컴팩트 형태**
+    (`code`/`name`/`credits`/`field_tags`만 — field_tags는 매칭 줄로 정리,
+    slots·raw 등 시간 상세는 생략)로 내려온다. 시간 상세가 필요하면 그 강의
+    code를 `codes=[...]`로 **지연 조회**해 받는다 (composer 3단계 교선 절차).
+    학번 태그가 없는 강의(전공 "[4차]" 등)는 판정 불가라 보수적으로 유지된다.
+    컴팩트 항목은 slots가 없으므로 `check_timetable_conflicts`에 그대로
+    넘기지 말 것 (ValueError). 응답 크기를 위해 `include_subject_groups=False`
+    와 함께 쓰는 것을 권장한다 (전체 인덱스 ~20KB도 50K 한도에 같이 계산됨).
+    **entered_year는 category_prefixes/codes/subject_keys와 AND**로 적용된다
+    (선택 조건이 먼저 고른 parsed 위에 다시 학번 필터).
+
     반환: { year, semester, summary, filters, parsed_count, subject_groups,
             stats: {total, parsed_ok, uncertain, empty}, _cache, guidance? }
-          + summary=False면 parsed: [ParsedLecture] 포함 (summary=True면 키 생략).
+          + summary=False면 parsed 포함 (summary=True면 키 생략).
     parsed_count = 이번 응답의 parsed 수 (필터 적용 시 필터된 수).
-    filters = 이번 호출에 적용된 부분 조회 조건 echo (미사용 시 전부 None).
+    filters = 이번 호출에 적용된 조회 조건 echo (미사용 시 전부 None —
+      entered_year 포함).
     parsed[i]는 code/name/subject_key/credits/slots/parse_status/parse_warnings와
     LLM 판단용 pass-through(target/field/professor/division/department/category/
     sub_category — 이수구분 판단은 category: "교필"/"전기-"/"전필-"/"전선-"/
-    "교선"/"교직")를 담습니다.
+    "교선"/"교직")를 담습니다. 단 entered_year 지정 시 컴팩트 형태(code/name/
+    credits/field_tags)로 축소된다 (위 참고).
     subject_groups = dedup 후 **전체** parsed 기준 {subject_key(code[:-2]): [code
     목록]} 인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서
     조회하세요 (필터로 parsed에 없는 분반 상세는 codes=[...]로 그때 조회).
@@ -832,6 +868,7 @@ async def parse_lectures_cache(
         "codes": codes,
         "subject_keys": subject_keys,
         "category_prefixes": category_prefixes,
+        "entered_year": entered_year,
     }
 
     if cache is None or cached_at is None:
@@ -869,6 +906,10 @@ async def parse_lectures_cache(
     # 부분 조회 (SPR-87): parsed만 필터, subject_groups/stats는 전체 기준 유지 —
     # 컴포저가 전체 분반 인덱스로 분반을 잡으면서 필요한 과목의 parsed만 받게.
     selected = filter_parsed_lectures(parsed, codes, subject_keys, category_prefixes)
+    # 학번 필터 (SPR-99): 선택 조건 위에 AND로 적용 — 서버 측 field_tags 정리로
+    # 교선 대형 그룹의 parsed 전체(50K 스필)를 받지 않게 한다.
+    if entered_year is not None:
+        selected = filter_parsed_by_entered_year(selected, entered_year)
     response = {
         "year": year,
         "semester": semester,
@@ -887,7 +928,12 @@ async def parse_lectures_cache(
     if include_subject_groups:
         response["subject_groups"] = build_subject_groups(parsed)
     if not summary:
-        response["parsed"] = _jsonify(selected)
+        # entered_year 지정 시 컴팩트 후보 뷰 (슬롯 생략, 50K 스필 방지 — SPR-99).
+        # 상세는 codes=[...] 지연 조회로 받는다. summary=True면 이 아래까지 못 옴.
+        if entered_year is not None:
+            response["parsed"] = [_compact_lecture(p) for p in selected]
+        else:
+            response["parsed"] = _jsonify(selected)
     # summary=True면 parsed 키를 아예 생략한다 — find_lectures(summary=True)의
     # lectures 키 생략, load_lectures_cache 메타 모드의 그룹 lectures 키 제외와
     # 동일한 관례 (SPR-76). 강의 수는 parsed_count로 확인한다.
