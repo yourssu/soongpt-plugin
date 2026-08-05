@@ -898,6 +898,36 @@ async def test_check_timetable_conflicts_minimal_no_conflict() -> None:
     assert result["warnings"] == []
 
 
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_explicit_subject_key_avoids_dup_hint() -> None:
+    """마지막 2자리만 다른 별도 과목 — subject_key 명시 시 '과목 중복' 오판 회피.
+
+    최소 필드만 넘기면 subject_key=code[:-2]로 파생돼 분반 중복 힌트가 붙지만
+    (SPR-86 경계), 실제 subject_key를 명시하면 단순 시간 충돌로만 처리된다.
+    """
+    result = await server.check_timetable_conflicts(
+        [
+            {
+                "code": "2150164203",
+                "name": "알고리즘",
+                "subject_key": "21501642",
+                "slots": [{"days": ["월"], "start_min": 630, "end_min": 720}],
+                "parse_status": "ok",
+            },
+            {
+                "code": "2150164204",
+                "name": "자료구조",
+                "subject_key": "21501643",  # 분반이 아닌 별도 과목 — 다른 subject_key
+                "slots": [{"days": ["월"], "start_min": 660, "end_min": 780}],
+                "parse_status": "ok",
+            },
+        ]
+    )
+    assert result["has_blocking_conflict"] is True
+    conflict = result["conflicts"][0]
+    assert "과목 중복" not in conflict["message"]
+
+
 # ── SPR-83 critic 수정: 빈 slots / 잘못된 parse_status / 오버라이드 / 혼합 ──
 
 

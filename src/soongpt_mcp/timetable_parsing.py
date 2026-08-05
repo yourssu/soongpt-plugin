@@ -325,7 +325,10 @@ def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
     (하위 호환). LLM이 최소 필드(code/name/credits/slots/parse_status)만 넘겨도
     동작하도록, 누락 가능한 선택 필드는 다음 기본값으로 채운다:
 
-      - subject_key: code[:-2] (parse_lectures와 동일 규칙 — 분반 중복 판정용)
+      - subject_key: code[:-2] (parse_lectures와 동일 규칙 — 분반 중복 판정용).
+        생략 시 code[:-2]로 자동 파생되므로, 마지막 2자리만 다른 서로 다른 과목
+        (분반이 아닌 별도 과목)은 "같은 과목 분반 중복"으로 오판될 수 있다.
+        실제 subject_key를 알면 명시적으로 넘길 것.
       - parse_status: 기본 "ok", 단 slots=[]면 "empty" (빈 강의는 충돌 검사 제외)
       - parse_warnings / raw: [] / None (충돌 검사 로직에서 미사용)
       - slots[].room / professor: None (충돌 검사 로직에서 미사용)
