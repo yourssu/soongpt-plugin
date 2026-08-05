@@ -7,6 +7,22 @@
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-08-06
+
+개선 워크플로우 회고 기반 — "지침 대신 서버 강제" 전환 시작, 전용 도구 분리.
+
+### Added
+
+- 교선 컴팩트·부분 상세 전용 도구 분리 — `list_optional_elective_candidates`(교선 컴팩트 후보: 학번 필터+150상한+subject_groups 제외를 시그니처에 고정) / `get_lecture_details`(codes 부분 상세). parse_lectures_cache의 옵션 조합 폭발 해소 + 도구 설명 경량화 (SPR-112) (#74)
+
+### Changed
+
+- `save_lectures_cache` 내부 함수 개명(`_save_lectures_cache`) — SPR-75에서 MCP 도구 제거 후에도 같은 이름으로 남아 있던 내부 API의 명명 혼동 정리 (SPR-113) (#72)
+
+### Fixed
+
+- `find_by_lecture`/`find_by_professor`는 summary를 무시하고 항상 상세 반환 — 스킬 지침이 아니라 서버가 강제해 확인용 조회 2중 호출 원인 제거 (SPR-110) (#73)
+
 ## [1.2.7] - 2026-08-05
 
 개선 워크플로우 8차 (Iteration 9 실측 기반) — 재수강 판단 규칙 보강, 표시값 버그 수정.
