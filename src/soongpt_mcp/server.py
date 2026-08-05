@@ -915,9 +915,10 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         (분반이 아닌 별도 과목)은 "같은 과목 분반 중복 선택"으로 오판될 수 있습니다 —
         실제 subject_key를 알고 있으면 명시적으로 넘기세요.
     parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
-    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(target/field/
-    professor 등)는 유실됩니다 — 충돌 검사 결과를 후속 조합 입력에 그대로
-    재사용하지 마세요.
+    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(field/professor/
+    department 등)는 유실됩니다 — **예외로 `target`은 Case A(대상외수강제한)
+    스캔(SPR-101)에 필요해 lax 경로에서 보존**합니다. 충돌 검사 결과를 후속
+    조합 입력에 그대로 재사용하지 마세요.
 
     단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
     (전수 비교/O(N²) 우회 및 의미론 혼란 방지).
