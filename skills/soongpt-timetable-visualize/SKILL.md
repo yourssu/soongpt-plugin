@@ -69,14 +69,15 @@ description: 조립 중/완성된 시간표를 브라우저에서 한 눈에 보
 ### 2. 입력 JSON 파일 작성
 
 - 1단계의 dict 목록을 **배열** 그대로 저장한다. 최상위 `{"lectures": [...]}` 래퍼도 허용되지만 배열이 기본.
-- 경로는 **실행마다 유니크한 임시 파일**로 생성한다 (SPR-84). 고정 경로(`/tmp/soongpt_timetable_*.json`)를 재사용하지 않는다 — 이전 실행이 남긴 입력 JSON을 새 데이터로 오인하거나 덮어쓰는 혼동을 막는다. /tmp는 OS가 주기적으로 정리하므로 남은 파일을 직접 지울 필요는 없다.
+- 경로는 **실행마다 유니크한 임시 파일**로 생성한다 (SPR-84). 고정 경로(`/tmp/soongpt_timetable_*.json`)를 재사용하지 않는다 — 이전 실행이 남긴 입력 JSON을 새 데이터로 오인하거나 덮어쓰는 혼동을 막는다.
 - 유니크 경로 생성 방법 (둘 중 하나):
-  - **tempfile (권장)**: 아래 명령으로 새 빈 파일 경로를 받아 그 경로에 JSON을 쓴다.
+  - **tempfile (권장)**: 아래 명령으로 새 빈 파일 경로를 받아 그 경로에 JSON을 쓴다. 생성 위치는 **OS 기본 임시 디렉터리**(macOS는 `$TMPDIR` → `/var/folders/...`, Linux는 `/tmp`)다.
     ```
     python3 -c "import tempfile; print(tempfile.mkstemp(prefix='soongpt_timetable_', suffix='.json')[1])"
     ```
-  - **시각 기반 이름**: `/tmp/soongpt_timetable_<이름>_<YYYYMMDDHHMMSS>.json` (예: `/tmp/soongpt_timetable_candidate_20260805120430.json`)
+  - **시각 기반 이름**: `<OS 기본 임시 디렉터리>/soongpt_timetable_<이름>_<YYYYMMDDHHMMSS>.json` (예: `/tmp/soongpt_timetable_candidate_20260805120430.json`)
 - 어느 쪽이든 **이번 실행에서 만든 그 경로**를 3단계 렌더러에 그대로 넘긴다.
+- 임시 파일은 어느 경로에 생기든 OS가 주기적으로 정리하므로, 남은 파일을 직접 지울 필요는 없다.
 - 저장소 안에 넣지 않는다.
 - **민감 정보 금지**: 학번/비밀번호/세션값은 절대 JSON에 넣지 않는다 (lecture dict 필드만).
 
