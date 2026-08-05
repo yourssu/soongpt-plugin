@@ -344,9 +344,15 @@ def filter_parsed_lectures(
     if not any((codes, subject_keys, category_prefixes)):
         return parsed
 
-    code_set = set(codes or [])
-    subject_set = set(subject_keys or [])
+    # 빈 문자열은 유효하지 않은 필터값 — 코드/과목키/prefix 모두 걸러낸다.
+    # ("startswith('')"이 전부 매칭되는 것과 대칭으로, 빈 code가 실제로는
+    # 존재하지 않아 매칭 결과는 같지만 의도치 않은 foot-gun을 막는다.)
+    code_set = {c for c in (codes or []) if c}
+    subject_set = {s for s in (subject_keys or []) if s}
     prefixes = [p for p in (category_prefixes or []) if p]
+
+    if not (code_set or subject_set or prefixes):
+        return parsed
 
     def _match(lecture: ParsedLecture) -> bool:
         return (

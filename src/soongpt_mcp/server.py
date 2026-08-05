@@ -667,6 +667,8 @@ async def parse_lectures_cache(
     summary=True 시 parsed 상세를 생략하고 parsed_count + subject_groups + stats
     만 반환한다 (SPR-76). 요약 모드는 "캐시가 파싱 가능한 상태인지" + **전체
     subject_groups 인덱스**를 가볍게 확인할 때 쓴다 (composer 1단계).
+    summary=True와 필터를 함께 주면 parsed_count만 필터된 수로 반영되고
+    subject_groups/stats는 여전히 전체 기준이다.
 
     부분 조회 (SPR-87): codes / subject_keys / category_prefixes로 parsed를
     추릴 수 있다 — composer가 전체 ~1MB를 한 번에 받지 않고 필요한 과목만

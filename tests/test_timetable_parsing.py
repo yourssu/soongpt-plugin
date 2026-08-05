@@ -747,6 +747,37 @@ def test_filter_parsed_lectures_category_none_excluded() -> None:
     assert "3161011001" in codes  # "교선" → prefix "교" 일치
 
 
+def test_filter_parsed_lectures_gyojik_jeongong_excluded() -> None:
+    """교직전공- 은 필수 prefix(전기-/전필-/교필/채플)에 걸리지 않는다 (회귀 방지).
+
+    composer 2번 단계가 `category_prefixes=["전기-", "전필-", "교필", "채플"]`로
+    필수+채플을 조회할 때 `교직전공-<학부명>` 강의가 섞여 나오면 안 된다.
+    """
+    parsed = parse_lectures(
+        [
+            _lecture(code="2150164203", name="전기기초", category="전기-컴퓨터학부"),
+            _lecture(code="2150999001", name="교직전공", category="교직전공-컴퓨터학부"),
+            _lecture(code="2150078501", name="비전채플", category="채플"),
+        ]
+    )
+    result = filter_parsed_lectures(
+        parsed, category_prefixes=["전기-", "전필-", "교필", "채플"]
+    )
+    codes = [p.code for p in result]
+    assert "2150164203" in codes
+    assert "2150078501" in codes
+    assert "2150999001" not in codes  # 교직전공- 은 제외
+
+
+def test_filter_parsed_lectures_empty_strings_ignored() -> None:
+    """빈 문자열 필터값은 유효하지 않은 입력으로 무시 — 전체 반환 (하위 호환)."""
+    parsed = _parsed_multi_category()
+    result = filter_parsed_lectures(
+        parsed, codes=[""], subject_keys=[""], category_prefixes=[""]
+    )
+    assert result == parsed
+
+
 # ── server 도구: parse_lectures_cache / check_timetable_conflicts ──────
 
 

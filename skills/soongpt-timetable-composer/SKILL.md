@@ -54,7 +54,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
      > "강의 {N}개 중 파싱 불확정 {U}개, 온라인(빈 시간) {E}개가 있어. 불확정은 시간 충돌 검사에서 제외돼."
 2. **필수 + 채플** (1회): `parse_lectures_cache(year, semester, category_prefixes=["전기-", "전필-", "교필", "채플"])` 호출 — ① 필수과목·② 미이수·④ 채플 판단에 쓰는 parsed만 받는다. `교직전공-`은 이 prefix에 안 걸려 기존과 동일하게 자동 제외.
 3. **교양선택(교선)** (Flex 후보 필요 시): `parse_lectures_cache(year, semester, category_prefixes=["교선"])` 호출 — 교선은 `optional_elective_all` 단일 그룹(~337강의)이라 여전히 크다. 전부를 능동 추론에 올리지 말고 — `field_tags`에서 `profile.entered_year`에 해당하는 줄만 가진 강의를 1차로 추려 Flex 교선 후보 풀로 좁히고, 나머지는 요약으로 둔다.
-4. **재수강/분반 상세** (필요할 때만): `subject_groups`(1번)와 `lowGradeSubjectCodes`를 코드로 교차해 대상 subject_key를 정한 뒤, `parse_lectures_cache(year, semester, subject_keys=[...])`(분반 그룹 전체) 또는 `codes=[...]`(정확 조회)로 그때 상세를 받는다. 채플 분반 `category` 미실측 대비 — 진입 절차 2번의 `groups["chapel"].codes`로 채플 code를 알 수 있으니 `codes=[...]` 조회가 대비책이다.
+4. **재수강/분반 상세** (필요할 때만): ③ 재수강 식별로 대상 code를 정하고, 그 code의 `subject_key`(`code[:-2]`)를 `subject_groups`(1번)에서 찾아 `parse_lectures_cache(year, semester, subject_keys=[...])`(분반 그룹 전체) 또는 `codes=[...]`(정확 조회)로 그때 상세를 받는다. `lowGradeSubjectCodes`는 `parsed[].code`와 동일 체계의 수강이력 code이므로 그대로 `codes=[...]`에 쓸 수 있고, subject_key가 필요하면 `code[:-2]`로 구한다. 채플 분반 `category` 미실측 대비 — 진입 절차 2번의 `groups["chapel"].codes`로 채플 code를 알 수 있으니 `codes=[...]` 조회가 대비책이다.
 
 - **분반 열거는 항상 `subject_groups`(전체 인덱스) 기준** — 부분 조회한 parsed에 없는 분반도 subject_groups에서 code를 찾고, 그 code 상세가 필요하면 `codes=[...]`로 그때 조회한다.
 - **루프 밖에서 필요한 만큼만, 재조회 금지**: 후보 반복(Base/Flex 조립·충돌 검사) 중에는 이미 확보한 parsed/subject_groups를 재사용한다 (추가 필터 호출은 판단 전에 필요한 만큼만).
