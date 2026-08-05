@@ -78,6 +78,7 @@ from .timetable_cache import (
 from .timetable_parsing import (
     ParsedLecture,
     build_subject_groups,
+    duplicate_slot_raws,
     find_conflicts,
     parse_lectures,
 )
@@ -673,6 +674,15 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
             f"불확정 강의 {len(skipped)}개 (uncertain/empty): "
             f"{', '.join(skipped)} — 충돌 검사에서 제외"
         )
+    # 동일 강의 내 (요일+시작+종료) 중복 슬롯 방어 — 파싱 dedup(SPR-82) 후 정상
+    # 흐름에서는 발생하지 않지만, 수동 dict/구버전 데이터로 들어오면 경고로 보고.
+    for p in parsed:
+        dup_raws = duplicate_slot_raws(p)
+        if dup_raws:
+            warnings.append(
+                f"[{p.code}] {p.name or ''} 내 동일 슬롯 중복 {len(dup_raws)}건: "
+                f"{' | '.join(dup_raws)}"
+            )
     conflicts = find_conflicts(parsed)
     return {
         "conflicts": _jsonify(conflicts),
