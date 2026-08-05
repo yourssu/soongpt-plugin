@@ -100,7 +100,7 @@ bash scripts/run-server.sh
 |---|---|---|
 | `get_usaint_snapshot` | 학적 정보, 학기별 수강 과목(코드+강의명 subjects 인라인), 저성적(C/D/F) 과목, 복수전공/부전공/교직 플래그 (30일 캐시, 프로필 자동 저장). `subjectNames`는 subjects에서 자동 파생 | 캐시 hit 즉시 / 미스 ~9초 |
 | `get_graduation_status` | 졸업 요건 상세 + 카테고리별 충족 여부 + 잔여 학점 (30일 캐시, `force_refresh` 옵션) | 캐시 hit 즉시 / 미스 ~6초 |
-| `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션). 기본 `save_to_cache=True`로 결과를 서버 측에서 캐시에 자동 그룹 저장 (SPR-75) | ~3초 |
+| `find_lectures` | 특정 학기/카테고리 강의 검색 (강의계획서 옵션). 기본 `save_to_cache=True`로 결과를 서버 측에서 캐시에 자동 그룹 저장 (SPR-75) | 일반 카테고리 ~3초 / 교양선택 "전체"는 수초~30초대 |
 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 '[‘NN이후]' 분류 포함) | ~3초 |
 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 `[SW와AI]` 등 포함) | ~3초 |
 | `load_lectures_cache` | 저장된 강의 캐시 로드 (7일 TTL, `_cache.source`로 hit/stale/miss 구분) | 즉시 |
