@@ -421,6 +421,33 @@ async def test_parse_lectures_cache_summary_stale() -> None:
     assert resp["summary"] is True
 
 
+# ── SPR-95: include_subject_groups 옵션 ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_omits_subject_groups() -> None:
+    """include_subject_groups=False → subject_groups 키 생략 (~20KB 절감)."""
+    cache_mod.save_lectures_cache(_build_cache())
+
+    resp = await server.parse_lectures_cache(2026, "1", include_subject_groups=False)
+
+    assert "subject_groups" not in resp
+    # parsed/stats 등 나머지는 그대로 (기본 summary=False라 parsed 포함)
+    assert len(resp["parsed"]) == 4
+    assert resp["stats"]["total"] == 4
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_miss_omits_subject_groups() -> None:
+    """miss 경로에서도 include_subject_groups=False → 키 생략 (일관성)."""
+    resp = await server.parse_lectures_cache(
+        2026, "2", summary=True, include_subject_groups=False
+    )
+
+    assert resp["_cache"]["source"] == "miss"
+    assert "subject_groups" not in resp
+
+
 # ── SPR-87: 부분 조회 옵션 (codes / subject_keys / category_prefixes) ──
 
 

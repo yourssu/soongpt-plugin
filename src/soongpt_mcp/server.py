@@ -738,6 +738,7 @@ async def parse_lectures_cache(
     codes: list[str] | None = None,
     subject_keys: list[str] | None = None,
     category_prefixes: list[str] | None = None,
+    include_subject_groups: bool = True,
 ) -> dict:
     """저장된 강의 캐시를 시간표 파싱 결과로 변환합니다.
 
@@ -750,11 +751,17 @@ async def parse_lectures_cache(
       (+ guidance로 새로고침 안내)
     - "miss": 파일 없음 — parsed 비움 + guidance (스킬이 find_lectures로 채워야 함)
 
-    summary=True 시 parsed 상세를 생략하고 parsed_count + subject_groups + stats
-    만 반환한다 (SPR-76). 요약 모드는 "캐시가 파싱 가능한 상태인지" + **전체
-    subject_groups 인덱스**를 가볍게 확인할 때 쓴다 (composer 1단계).
+    summary=True 시 parsed 상세를 생략하고 parsed_count + stats(+
+    subject_groups)만 반환한다 (SPR-76). 요약 모드는 "캐시가 파싱 가능한 상태인지"
+    + **전체 subject_groups 인덱스**를 가볍게 확인할 때 쓴다 (composer 1단계).
     summary=True와 필터를 함께 주면 parsed_count만 필터된 수로 반영되고
     subject_groups/stats는 여전히 전체 기준이다.
+
+    include_subject_groups=False (SPR-95) 시 subject_groups 키를 응답에서
+    생략한다. subject_groups는 전체 parsed 기준(~245키, ~20KB)이라 summary 모드나
+    부분 조회(codes/subject_keys)에서 매 응답에 중복되는 비용이 크다 — 분반
+    인덱스가 필요 없는 호출에서는 False로 끄면 응답이 가벼워진다. 기본값 True
+    (하위 호환).
 
     부분 조회 (SPR-87): codes / subject_keys / category_prefixes로 parsed를
     추릴 수 있다 — composer가 전체 ~1MB를 한 번에 받지 않고 필요한 과목만
@@ -779,6 +786,7 @@ async def parse_lectures_cache(
     subject_groups = dedup 후 **전체** parsed 기준 {subject_key(code[:-2]): [code
     목록]} 인덱스. 컴포저는 이 인덱스로 분반 그룹을 잡고, 각 code로 parsed에서
     조회하세요 (필터로 parsed에 없는 분반 상세는 codes=[...]로 그때 조회).
+    include_subject_groups=False면 이 키를 응답에서 생략한다.
 
     학기(semester): "1" | "2" | "summer" | "winter"
     """
@@ -797,7 +805,6 @@ async def parse_lectures_cache(
             "parsed_count": 0,
             "summary": summary,
             "filters": filters,
-            "subject_groups": {},
             "stats": {"total": 0, "parsed_ok": 0, "uncertain": 0, "empty": 0},
             "_cache": {"source": "miss", "cached_at": None, "age_days": None},
             "guidance": (
@@ -806,6 +813,8 @@ async def parse_lectures_cache(
                 "서버가 자동으로 캐시에 저장합니다)."
             ),
         }
+        if include_subject_groups:
+            resp["subject_groups"] = {}
         if not summary:
             resp["parsed"] = []
         return resp
@@ -830,7 +839,6 @@ async def parse_lectures_cache(
         "summary": summary,
         "filters": filters,
         "parsed_count": len(selected),
-        "subject_groups": build_subject_groups(parsed),
         "stats": stats,
         "_cache": {
             "source": source,
@@ -838,6 +846,10 @@ async def parse_lectures_cache(
             "age_days": (now - cached_at).days,
         },
     }
+    # subject_groups는 전체 parsed 기준(~20KB)이라 분반 인덱스가 필요 없는 호출에선
+    # include_subject_groups=False로 끌 수 있다 (SPR-95). 기본 True(하위 호환).
+    if include_subject_groups:
+        response["subject_groups"] = build_subject_groups(parsed)
     if not summary:
         response["parsed"] = _jsonify(selected)
     # summary=True면 parsed 키를 아예 생략한다 — find_lectures(summary=True)의
