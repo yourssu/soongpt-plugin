@@ -87,7 +87,7 @@ def _build_cache() -> LecturesCache:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_default_includes_lectures() -> None:
     """기본(include_lectures=True)은 기존 동작 — lectures 상세 유지 (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1")
 
@@ -101,7 +101,7 @@ async def test_load_lectures_cache_default_includes_lectures() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_meta_mode_omits_lectures() -> None:
     """include_lectures=False → lectures 제거, codes·count·error·params 보존."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1", include_lectures=False)
 
@@ -141,7 +141,7 @@ async def test_load_lectures_cache_miss_meta_mode() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_codes_returns_only_matching() -> None:
     """codes 지정 → 매칭 강의 dict만 flat lectures로, groups는 메타 축소."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(
         2026, "1", codes=["CS10101", "2150078502"]
@@ -168,7 +168,7 @@ async def test_load_lectures_cache_codes_returns_only_matching() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_codes_cross_group_order() -> None:
     """코드가 여러 그룹에 걸쳐 있어도 캐시 순서대로 flat 수집."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(
         2026, "1", codes=["2150078501", "CS10201"]
@@ -181,7 +181,7 @@ async def test_load_lectures_cache_codes_cross_group_order() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_codes_unmatched_reported() -> None:
     """캐시에 없는 code는 unmatched_codes로 보고 (응답은 성공 유지)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1", codes=["CS10101", "XXXX"])
 
@@ -197,7 +197,7 @@ async def test_load_lectures_cache_codes_dedups_cross_group() -> None:
     cache.groups["chapel"].lectures.append(
         {"code": "CS10101", "name": "중복사본", "schedule_room": "금 09:00-10:00"}
     )
-    cache_mod.save_lectures_cache(cache)
+    cache_mod._save_lectures_cache(cache)
 
     resp = await server.load_lectures_cache(2026, "1", codes=["CS10101"])
 
@@ -210,7 +210,7 @@ async def test_load_lectures_cache_codes_dedups_cross_group() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_codes_empty() -> None:
     """codes=[] → lectures 비움 (유효 입력)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1", codes=[])
 
@@ -235,7 +235,7 @@ async def test_load_lectures_cache_codes_miss_shape() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_default_no_codes_keys() -> None:
     """기본 호출엔 codes 필터 키가 없다 (하위 호환, 응답 스키마 불변)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1")
 
@@ -251,7 +251,7 @@ async def test_load_lectures_cache_default_no_codes_keys() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_codes_include_groups_false_omits_groups() -> None:
     """codes + include_groups=False → groups 키 자체 생략, lectures만 반환 (핵심 최적화)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(
         2026, "1", codes=["CS10101", "2150078502"], include_groups=False
@@ -272,7 +272,7 @@ async def test_load_lectures_cache_codes_include_groups_false_omits_groups() -> 
 @pytest.mark.asyncio
 async def test_load_lectures_cache_include_groups_false_meta_mode() -> None:
     """include_groups=False (기본 모드) → groups 생략, count/total_lectures 유지."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1", include_groups=False)
 
@@ -311,7 +311,7 @@ async def test_load_lectures_cache_codes_include_groups_false_miss() -> None:
 @pytest.mark.asyncio
 async def test_load_lectures_cache_include_groups_default_true_backcompat() -> None:
     """기본(include_groups=True)은 groups를 포함해 기존 스키마 유지 (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.load_lectures_cache(2026, "1")
 
@@ -443,7 +443,7 @@ async def test_find_lectures_summary_save_to_cache_false(
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_summary_omits_parsed() -> None:
     """summary=True → parsed 생략, parsed_count + subject_groups/stats만."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.parse_lectures_cache(2026, "1", summary=True)
 
@@ -459,7 +459,7 @@ async def test_parse_lectures_cache_summary_omits_parsed() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_default_includes_parsed() -> None:
     """기본(summary=False)은 기존 동작 — parsed 상세 유지 (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.parse_lectures_cache(2026, "1")
 
@@ -485,7 +485,7 @@ async def test_parse_lectures_cache_summary_stale() -> None:
     """stale 캐시 + summary=True → parsed 생략 + guidance 포함."""
     cache = _build_cache()
     cache.cached_at = datetime.now(timezone.utc) - timedelta(days=8)
-    cache_mod.save_lectures_cache(cache)
+    cache_mod._save_lectures_cache(cache)
 
     resp = await server.parse_lectures_cache(2026, "1", summary=True)
 
@@ -502,7 +502,7 @@ async def test_parse_lectures_cache_summary_stale() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_omits_subject_groups() -> None:
     """include_subject_groups=False → subject_groups 키 생략 (~20KB 절감)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.parse_lectures_cache(2026, "1", include_subject_groups=False)
 
@@ -588,7 +588,7 @@ def _build_category_cache() -> LecturesCache:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_partial_category_prefixes() -> None:
     """category_prefixes → parsed만 필터, subject_groups/stats는 전체 기준."""
-    cache_mod.save_lectures_cache(_build_category_cache())
+    cache_mod._save_lectures_cache(_build_category_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["전기-", "채플"]
@@ -617,7 +617,7 @@ async def test_parse_lectures_cache_partial_category_prefixes() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_partial_subject_keys() -> None:
     """subject_keys → 분반 그룹 전체 반환."""
-    cache_mod.save_lectures_cache(_build_cache())  # chapel 2150078501/02
+    cache_mod._save_lectures_cache(_build_cache())  # chapel 2150078501/02
 
     resp = await server.parse_lectures_cache(2026, "1", subject_keys=["21500785"])
 
@@ -629,7 +629,7 @@ async def test_parse_lectures_cache_partial_subject_keys() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_partial_codes() -> None:
     """codes → 정확 조회 + 필터 echo + 전체 subject_groups 유지."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.parse_lectures_cache(2026, "1", codes=["CS10101"])
 
@@ -650,7 +650,7 @@ async def test_parse_lectures_cache_partial_codes() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_no_filter_backward_compat() -> None:
     """필터 미지정 → 전체 parsed + filters 모두 None (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_cache())
+    cache_mod._save_lectures_cache(_build_cache())
 
     resp = await server.parse_lectures_cache(2026, "1")
 
@@ -669,7 +669,7 @@ async def test_parse_lectures_cache_no_filter_backward_compat() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_partial_summary_omits_parsed() -> None:
     """summary=True + 필터 → parsed 생략, 필터는 필터된 수로 parsed_count 반영."""
-    cache_mod.save_lectures_cache(_build_category_cache())
+    cache_mod._save_lectures_cache(_build_category_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", summary=True, category_prefixes=["교선"]
@@ -754,7 +754,7 @@ async def test_parse_lectures_cache_entered_year_compact() -> None:
     교선 ~337강의 parsed 전체(50K 스필)를 받지 않게 code/name/credits/field_tags
     만 반환하고, 서버가 field_tags 학번 매칭 줄로 추린다 (SPR-99).
     """
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,
@@ -782,7 +782,7 @@ async def test_parse_lectures_cache_entered_year_compact() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_entered_year_backward_compat() -> None:
     """entered_year 미지정 → 기존 full parsed(슬롯 포함) (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False
@@ -797,7 +797,7 @@ async def test_parse_lectures_cache_entered_year_backward_compat() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_entered_year_summary_omits_parsed() -> None:
     """summary=True + entered_year → parsed 생략, parsed_count는 필터된 수."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", summary=True, category_prefixes=["교선"], entered_year=2023
@@ -843,7 +843,7 @@ async def test_parse_lectures_cache_entered_year_and_category_prefixes() -> None
         count=1,
         error=None,
     )
-    cache_mod.save_lectures_cache(cache)
+    cache_mod._save_lectures_cache(cache)
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], entered_year=2023
@@ -897,7 +897,7 @@ async def test_parse_lectures_cache_entered_year_limit_cap() -> None:
     entered_year 필터가 항목 수를 못 줄이는 학번(졸업반 2020)에서도 200개 컴팩트
     응답(실측 ~60KB 상당)을 기본 상한 150개로 잘라 50K 미만을 보장한다.
     """
-    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+    cache_mod._save_lectures_cache(_build_gyoseon_many_cache(200))
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,
@@ -919,7 +919,7 @@ async def test_parse_lectures_cache_entered_year_limit_cap() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_entered_year_offset_continuation() -> None:
     """truncated면 offset을 늘려 나머지를 이어받는다 (SPR-103)."""
-    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+    cache_mod._save_lectures_cache(_build_gyoseon_many_cache(200))
 
     resp1 = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,
@@ -945,7 +945,7 @@ async def test_parse_lectures_cache_entered_year_offset_continuation() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_entered_year_limit_zero_unlimited() -> None:
     """limit=0 → 상한 없음 (하위 호환) — 전체 반환 + truncated False."""
-    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+    cache_mod._save_lectures_cache(_build_gyoseon_many_cache(200))
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,
@@ -961,7 +961,7 @@ async def test_parse_lectures_cache_entered_year_limit_zero_unlimited() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_entered_year_explicit_limit() -> None:
     """명시적 limit 적용 — 상한만큼만 반환."""
-    cache_mod.save_lectures_cache(_build_gyoseon_many_cache(200))
+    cache_mod._save_lectures_cache(_build_gyoseon_many_cache(200))
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,
@@ -977,7 +977,7 @@ async def test_parse_lectures_cache_entered_year_explicit_limit() -> None:
 @pytest.mark.asyncio
 async def test_parse_lectures_cache_limit_ignored_without_entered_year() -> None:
     """limit/offset은 entered_year 컴팩트 경로에만 적용 — full parsed는 무시 (하위 호환)."""
-    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+    cache_mod._save_lectures_cache(_build_gyoseon_cache())
 
     resp = await server.parse_lectures_cache(
         2026, "1", category_prefixes=["교선"], include_subject_groups=False,

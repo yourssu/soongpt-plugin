@@ -12,11 +12,11 @@ from soongpt_mcp.lectures_cache import (
     CACHE_TTL_DAYS,
     LectureGroupEntry,
     LecturesCache,
+    _save_lectures_cache,
     group_key_for,
     is_lectures_cache_fresh,
     load_lectures_cache,
     merge_lectures_groups,
-    save_lectures_cache,
     save_lectures_group,
     total_lectures_count,
 )
@@ -61,7 +61,7 @@ def test_resolve_path_uses_plugin_data(isolated_root: Path) -> None:
 
 def test_save_then_load_roundtrip(isolated_root: Path) -> None:
     cache = _sample_cache()
-    save_lectures_cache(cache)
+    _save_lectures_cache(cache)
     loaded, cached_at = load_lectures_cache(2026, "1")
     assert loaded is not None
     assert loaded.year == 2026
@@ -137,7 +137,7 @@ def test_load_invalid_cached_at_returns_none(isolated_root: Path) -> None:
 def test_save_creates_parent_directory(isolated_root: Path) -> None:
     """이미 isolated_root 자체는 존재하지만, 파일 저장 시 부모 디렉토리 보장 로직 검증."""
     cache = _sample_cache()
-    target = save_lectures_cache(cache)
+    target = _save_lectures_cache(cache)
     assert target.exists()
     assert target.parent == isolated_root
 
@@ -145,7 +145,7 @@ def test_save_creates_parent_directory(isolated_root: Path) -> None:
 def test_save_overwrite(isolated_root: Path) -> None:
     """동일 학기 재저장 시 덮어쓰기."""
     cache = _sample_cache()
-    save_lectures_cache(cache)
+    _save_lectures_cache(cache)
     updated = _sample_cache()
     updated.groups["new_group"] = LectureGroupEntry(
         category_type="chapel",
@@ -153,7 +153,7 @@ def test_save_overwrite(isolated_root: Path) -> None:
         lectures=[],
         count=0,
     )
-    save_lectures_cache(updated)
+    _save_lectures_cache(updated)
     loaded, _ = load_lectures_cache(2026, "1")
     assert loaded is not None
     assert "new_group" in loaded.groups
@@ -161,8 +161,8 @@ def test_save_overwrite(isolated_root: Path) -> None:
 
 def test_different_semesters_isolated(isolated_root: Path) -> None:
     """학기별 파일 분리 검증."""
-    save_lectures_cache(_sample_cache(2026, "1"))
-    save_lectures_cache(_sample_cache(2026, "2"))
+    _save_lectures_cache(_sample_cache(2026, "1"))
+    _save_lectures_cache(_sample_cache(2026, "2"))
     loaded1, _ = load_lectures_cache(2026, "1")
     loaded2, _ = load_lectures_cache(2026, "2")
     assert loaded1 is not None and loaded2 is not None

@@ -1025,7 +1025,7 @@ def _save_cache(isolated_root: Path, cached_at: datetime | None = None) -> None:
         },
         cached_at=cached_at or datetime.now(timezone.utc),
     )
-    cache_mod.save_lectures_cache(cache)
+    cache_mod._save_lectures_cache(cache)
 
 
 @pytest.mark.asyncio
