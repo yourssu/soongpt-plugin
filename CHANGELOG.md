@@ -7,9 +7,27 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-05
+
+개선 워크플로우 1차 (Iteration 1·2 실측 기반) — 대용량 응답이 LLM 컨텍스트를 통과하지 않도록 요약 옵션 추가, 미개설/중복 데이터 처리 통일, 시각화 산출물이 프로젝트 폴더를 오염하지 않도록 정리.
+
 ### Added
 
-- 대용량 MCP 도구 소형 응답 옵션 — `find_lectures(summary=True)`, `load_lectures_cache(include_lectures=False)`(그룹 메타·codes), `parse_lectures_cache(summary=True)`. 기본값은 기존 동작 유지. 통합 조회·캐시 확인이 컨텍스트를 크게 아낌 (SPR-76) (#44)
+- 대용량 MCP 도구 소형 응답 옵션 — `find_lectures(summary=True)`, `load_lectures_cache(include_lectures=False)`(그룹 메타·codes), `parse_lectures_cache(summary=True)`. 기본값은 기존 동작 유지 (SPR-76) (#44)
+
+### Changed
+
+- 교양선택 "전체" fetchTime 문서를 실측 기준으로 갱신 — 분야별 분산 호출(5~25회)보다 완전·안전하되, "1회 호출이 가볍다는 뜻은 아니다" 주의 명시 (SPR-77) (#41)
+
+### Fixed
+
+- `load_lectures_cache` 응답 count 의미 정리 — `count`=그룹 수, `total_lectures`=총 강의 수로 분리 (SPR-78) (#42)
+- 미개설 강의 조회를 빈 결과(count: 0)로 반환 — "No lecture found" 예외 제거 (SPR-79) (#45)
+- 교선 강의 동일 슬롯 중복 제거 — 파싱 단계 dedup + 충돌 검사 경고 (SPR-82) (#49)
+- 시각화 HTML 출력 경로를 캐시 디렉토리로 변경 — cwd/저장소 오염 방지, `CLAUDE_PLUGIN_DATA` 우선 (SPR-80) (#43)
+- 시각화 입력 JSON을 실행마다 유니크 임시 경로로 생성 — 고정 `/tmp` 경로 잔존 혼동 제거 (SPR-84) (#46)
+- 재수강 과목명 부분 매칭(contains) 폴백 + 개편 추정 안내 명문화 — 개편으로 이름이 바뀐 과목의 미개설 오판 방지 (SPR-81) (#47)
+- check_timetable_conflicts 최소 필드 허용 — 도구 설명에 필수/선택 필드 명시 (SPR-83) (#48)
 
 ## [1.1.0] - 2026-08-05
 
