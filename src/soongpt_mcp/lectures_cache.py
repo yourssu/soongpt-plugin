@@ -122,6 +122,16 @@ def save_lectures_cache(
     return target
 
 
+def total_lectures_count(cache: LecturesCache) -> int:
+    """전 그룹 강의 수 합 (load_lectures_cache 응답 `total_lectures`용).
+
+    각 그룹의 ``count``(해당 조회의 강의 수)를 합산한다. error 그룹은
+    ``count=0``이라 자연히 제외된다. ``count``(그룹 수)와 구분해서 쓰라
+    (SPR-78).
+    """
+    return sum(entry.count for entry in cache.groups.values())
+
+
 def group_key_for(
     category_type: str,
     *,

@@ -42,6 +42,7 @@ from .lectures_cache import (
     group_key_for,
     is_lectures_cache_fresh,
     save_lectures_group,
+    total_lectures_count,
 )
 from .lectures_cache import (
     load_lectures_cache as _load_lectures_cache_file,
@@ -78,6 +79,7 @@ from .timetable_cache import (
 from .timetable_parsing import (
     ParsedLecture,
     build_subject_groups,
+    duplicate_slot_raws,
     find_conflicts,
     parse_lectures,
 )
@@ -597,8 +599,12 @@ async def load_lectures_cache(
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
-    반환: { year, semester, groups: {group_key: ...}, count, include_lectures,
-            _cache: {source, cached_at, age_days} }
+    반환: { year, semester, groups: {group_key: {category_type, params, lectures, count, error}},
+            count, include_lectures, total_lectures, _cache: {source, cached_at, age_days} }
+    - `count` = **그룹 수** (len(groups)). 다른 도구들의 count 관례와 동일.
+    - `total_lectures` = **총 강의 수** (모든 groups의 count 합, SPR-78).
+      요약 표시/판단은 이 필드를 쓴다. error 그룹은 count=0이라 합산에서 제외.
+    - `include_lectures` = 이번 호출의 메타 모드 여부 (SPR-76).
     """
     cache, cached_at = _load_lectures_cache_file(year, semester)
     now = datetime.now(timezone.utc)
@@ -609,6 +615,7 @@ async def load_lectures_cache(
             "groups": {},
             "count": 0,
             "include_lectures": include_lectures,
+            "total_lectures": 0,
             "_cache": {"source": "miss", "cached_at": None, "age_days": None},
         }
 
@@ -627,6 +634,7 @@ async def load_lectures_cache(
         "groups": groups,
         "count": len(cache.groups),
         "include_lectures": include_lectures,
+        "total_lectures": total_lectures_count(cache),
         "_cache": {
             "source": source,
             "cached_at": cached_at.isoformat(),
@@ -748,6 +756,15 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
             f"불확정 강의 {len(skipped)}개 (uncertain/empty): "
             f"{', '.join(skipped)} — 충돌 검사에서 제외"
         )
+    # 동일 강의 내 (요일+시작+종료) 중복 슬롯 방어 — 파싱 dedup(SPR-82) 후 정상
+    # 흐름에서는 발생하지 않지만, 수동 dict/구버전 데이터로 들어오면 경고로 보고.
+    for p in parsed:
+        dup_raws = duplicate_slot_raws(p)
+        if dup_raws:
+            warnings.append(
+                f"[{p.code}] {p.name or ''} 내 동일 슬롯 중복 {len(dup_raws)}건: "
+                f"{' | '.join(dup_raws)}"
+            )
     conflicts = find_conflicts(parsed)
     return {
         "conflicts": _jsonify(conflicts),

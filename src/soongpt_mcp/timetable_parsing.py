@@ -19,6 +19,10 @@
 8. 파싱 실패 줄 → raw 보존 + parse_status="uncertain" → 충돌 검사 건너뜀.
 9. field_tags = field를 줄바꿈으로 분해한 태그 줄 리스트. 교양선택 "전체"
    조회의 멀티라인 field(전 학번 분야)를 줄 단위로 정규화. 학번 매칭은 LLM.
+10. 슬롯 dedup = (요일+시작+종료) 동일 슬롯은 첫 항목만 유지 (SPR-82). 러시아우트
+    원본이 같은 schedule_room 블록을 2회 주는 케이스(예: 2150057301 "화
+    09:00-10:15" 중복)가 있어 파싱 결과(slots)에서만 정리한다 — 원본
+    schedule_room(raw)은 그대로 보존. 중복 제거가 일어나면 parse_warnings에 기록.
 """
 from __future__ import annotations
 
@@ -121,15 +125,38 @@ class Conflict(BaseModel):
     message: str
 
 
-def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
-    """schedule_room 문자열을 TimeSlot 목록으로 파싱.
+def _slot_dedup_key(slot: TimeSlot) -> tuple[tuple[str, ...], int, int]:
+    """슬롯 dedup 키 = (요일, 시작분, 종료분). 같은 요일+시작+종료면 중복 취급."""
+    return (tuple(slot.days), slot.start_min, slot.end_min)
 
-    `\n`(리터럴 개행)으로 연결된 블록을 순회해 포맷에 맞는 것만 슬롯으로 만든다.
-    파싱 실패 블록과 비정상 시간 구간(종료<=시작, 예: 23:00-00:30 자정 경유)은
-    건너뛴다 — 호출자(parse_lectures)가 raw 블록 수와 슬롯 수를 비교해
-    parse_status="uncertain"을 판정한다.
+
+def _dedup_slots(slots: list[TimeSlot]) -> list[TimeSlot]:
+    """(요일+시작+종료) 동일 슬롯 중복 제거 — 첫 항목만 유지 (SPR-82).
+
+    러시아우트 원본이 같은 schedule_room 블록을 2회 주는 경우(예: 2150057301
+    "화 09:00-10:15" 중복) 파싱 결과에서만 정리한다. 원본 raw 문자열은 그대로
+    유지된다 (TimeSlot.raw는 블록 그대로 보존).
+    """
+    seen: set[tuple[tuple[str, ...], int, int]] = set()
+    result: list[TimeSlot] = []
+    for slot in slots:
+        key = _slot_dedup_key(slot)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(slot)
+    return result
+
+
+def _parse_blocks(schedule_room: str) -> tuple[list[TimeSlot], int]:
+    """블록 순회 → (dedup된 슬롯 목록, 파싱 성공 블록 수).
+
+    두 번째 반환값(parsed_count)은 dedup **전** 파싱 성공 블록 수다. 호출자
+    (parse_lectures)가 raw 블록 수와 이 값을 비교해 parse_status="uncertain"을
+    판정해야 한다 — dedup으로 슬롯 수가 줄어들어도 파싱 실패로 오판하지 않도록.
     """
     slots: list[TimeSlot] = []
+    parsed_count = 0
     for block in schedule_room.split("\n"):
         block = block.strip()
         if not block:
@@ -155,6 +182,7 @@ def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
         if end_min <= start_min:
             continue
 
+        parsed_count += 1
         slots.append(
             TimeSlot(
                 days=days,
@@ -165,6 +193,19 @@ def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
                 raw=block,
             )
         )
+    return _dedup_slots(slots), parsed_count
+
+
+def parse_schedule_room(schedule_room: str) -> list[TimeSlot]:
+    """schedule_room 문자열을 TimeSlot 목록으로 파싱.
+
+    `\n`(리터럴 개행)으로 연결된 블록을 순회해 포맷에 맞는 것만 슬롯으로 만든다.
+    파싱 실패 블록과 비정상 시간 구간(종료<=시작, 예: 23:00-00:30 자정 경유)은
+    건너뛴다 — 호출자(parse_lectures)가 raw 블록 수와 파싱 성공 블록 수를 비교해
+    parse_status="uncertain"을 판정한다. (요일+시작+종료) 동일 중복 슬롯은 dedup
+    된다 (SPR-82).
+    """
+    slots, _ = _parse_blocks(schedule_room)
     return slots
 
 
@@ -218,19 +259,24 @@ def parse_lectures(lectures: list[dict[str, Any]]) -> list[ParsedLecture]:
 
         schedule_room = raw.get("schedule_room") or ""
         raw_blocks = [b.strip() for b in schedule_room.split("\n") if b.strip()]
-        slots = parse_schedule_room(schedule_room)
+        slots, parsed_count = _parse_blocks(schedule_room)
 
         warnings: list[str] = []
         if not raw_blocks:
             status: ParseStatus = "empty"
-        elif len(slots) != len(raw_blocks):
+        elif parsed_count != len(raw_blocks):
             status = "uncertain"
             warnings.append(
                 f"schedule_room 파싱 실패 줄 존재 (raw {len(raw_blocks)}블록 중 "
-                f"{len(slots)}블록만 파싱됨): {code}"
+                f"{parsed_count}블록만 파싱됨): {code}"
             )
         else:
             status = "ok"
+            if len(slots) < parsed_count:
+                warnings.append(
+                    f"동일 슬롯 중복 {parsed_count - len(slots)}건 제거 "
+                    f"(요일+시작+종료 기준): {code}"
+                )
 
         subject_key = code[:-2]
         if len(code) != 10:
@@ -337,3 +383,21 @@ def find_conflicts(lectures: list[ParsedLecture]) -> list[Conflict]:
                     if _slots_overlap(slot_a, slot_b):
                         conflicts.append(_build_conflict(a, b, slot_a, slot_b))
     return conflicts
+
+
+def duplicate_slot_raws(lecture: ParsedLecture) -> list[str]:
+    """강의 내 (요일+시작+종료) 동일 슬롯 중복의 raw 문자열 목록 (없으면 []).
+
+    parse 단계 dedup(SPR-82) 이후 정상 흐름에서는 항상 []다 — 수동으로 만든
+    dict나 구버전 캐시 데이터가 중복 슬롯을 갖고 들어오는 방어용 가드로,
+    check_timetable_conflicts의 warning에서 사용한다.
+    """
+    seen: set[tuple[tuple[str, ...], int, int]] = set()
+    dups: list[str] = []
+    for slot in lecture.slots:
+        key = _slot_dedup_key(slot)
+        if key in seen:
+            dups.append(slot.raw)
+        else:
+            seen.add(key)
+    return dups
