@@ -462,7 +462,9 @@ def filter_parsed_by_entered_year(
     result: list[ParsedLecture] = []
     for lecture in parsed:
         has_tag = any(_has_entrance_tag(t) for t in lecture.field_tags)
-        if has_tag:
+        # 모든 줄이 학번 태그인 경우에만 필터 적용 — 태그 없는 줄이 하나라도
+        # 있으면(전 학번 개방 의미 가능) 판정 불가로 유지 (SPR-99 critic 반영)
+        if has_tag and all(_has_entrance_tag(t) for t in lecture.field_tags):
             matched = field_tags_for_entered_year(lecture.field_tags, entered_year)
             if not matched:
                 continue  # 학번 태그 있는데 매칭 없음 → 해당 학번엔 안 열림
