@@ -15,6 +15,18 @@ from soongpt_mcp import department_map as dm_mod
 from soongpt_mcp import server
 from soongpt_mcp.department_map import DepartmentMap
 
+# 현재 학기 고정값 — 실행 월(1~7 vs 8~12)에 무관하게 semester 매칭 판정 결정적.
+FIXED_PERIOD = (2026, "2")
+FIXED_SEMESTER = FIXED_PERIOD[1]
+
+
+@pytest.fixture(autouse=True)
+def fixed_current_period(monkeypatch: pytest.MonkeyPatch) -> None:
+    """server.current_academic_period를 (2026, "2")로 고정 (SPR-100)."""
+    monkeypatch.setattr(
+        server, "current_academic_period", lambda now=None: FIXED_PERIOD
+    )
+
 
 @pytest.fixture
 def isolated_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -204,6 +216,7 @@ def _seed_bundled(
     mapping: dict[str, str],
     built_at: datetime,
     year: int = 2026,
+    semester: str = FIXED_SEMESTER,
 ) -> Path:
     """resolve_bundled_department_map_path가 tmp_path를 가리키도록 패치하고 seed 파일 작성."""
     seed_dir = tmp_path / "bundled"
@@ -213,7 +226,7 @@ def _seed_bundled(
         json.dumps(
             {
                 "year": year,
-                "semester": "1",
+                "semester": semester,
                 "mapping": mapping,
                 "built_at": built_at.isoformat(),
             },
@@ -249,6 +262,54 @@ async def test_local_miss_bundled_hit_uses_bundled(
     assert counter["n"] == 0  # 자동 빌드 미호출
     assert result["_cache"]["source"] == "bundled"
     assert result["mapping"] == seed_mapping
+
+
+@pytest.mark.asyncio
+async def test_bundled_semester_mismatch_triggers_build(
+    isolated_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """seed semester(1)가 현재 학기(2)와 다르면 무시하고 자동 빌드 (SPR-100)."""
+    _seed_bundled(
+        monkeypatch,
+        isolated_root,
+        {"STALE_SEED": "단과대"},
+        datetime.now(timezone.utc),
+        semester="1",
+    )
+
+    fresh_mapping = {"FRESH": "단과대"}
+    counter: dict[str, int] = {"n": 0}
+    _patch_build_and_session(monkeypatch, fresh_mapping, counter)
+
+    result = await server.load_department_map(2026)
+    assert counter["n"] == 1
+    assert result["_cache"]["source"] == "fresh"
+    assert result["semester"] == FIXED_SEMESTER
+    assert result["mapping"] == fresh_mapping
+
+
+@pytest.mark.asyncio
+async def test_local_cache_semester_mismatch_triggers_build(
+    isolated_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """로컬 캐시 semester(1)가 현재 학기(2)와 다르면 무시하고 자동 빌드 (SPR-100)."""
+    stale_cache = DepartmentMap(
+        year=2026,
+        semester="1",
+        mapping={"OLD": "단과대"},
+        built_at=datetime.now(timezone.utc),
+    )
+    dm_mod.save_department_map(stale_cache)
+
+    fresh_mapping = {"NEW": "단과대"}
+    counter: dict[str, int] = {"n": 0}
+    _patch_build_and_session(monkeypatch, fresh_mapping, counter)
+
+    result = await server.load_department_map(2026)
+    assert counter["n"] == 1
+    assert result["_cache"]["source"] == "fresh"
+    assert result["semester"] == FIXED_SEMESTER
+    assert result["mapping"] == fresh_mapping
 
 
 @pytest.mark.asyncio

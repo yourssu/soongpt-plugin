@@ -15,6 +15,7 @@ from soongpt_mcp import lectures_cache as cache_mod
 from soongpt_mcp import server
 from soongpt_mcp.lectures_cache import LectureGroupEntry, LecturesCache
 from soongpt_mcp.timetable_parsing import (
+    CASE_A_MARKER,
     ParsedLecture,
     build_subject_groups,
     coerce_conflict_lecture,
@@ -23,6 +24,7 @@ from soongpt_mcp.timetable_parsing import (
     field_tags_for_entered_year,
     filter_parsed_by_entered_year,
     filter_parsed_lectures,
+    find_case_a_lectures,
     find_conflicts,
     has_time_conflict,
     parse_field_tags,
@@ -665,6 +667,45 @@ def test_find_conflicts_same_subject_hint() -> None:
     assert "과목 중복" in conflicts[0].message
 
 
+# ── SPR-101: Case A (대상외수강제한) 스캔 ──────────────────────
+
+
+def test_find_case_a_lectures_marker_presence() -> None:
+    """target에 (대상외수강제한) 포함 여부로 code 목록을 반환."""
+    a, b, c = parse_lectures(
+        [
+            _lecture(code="2150164203", name="알고리즘", target="컴퓨터학부 2학년"),
+            _lecture(
+                code="2150164205",
+                name="이산수학",
+                target="컴퓨터학부 2학년(대상외수강제한)",
+            ),
+            _lecture(
+                code="2150164206",
+                name="머신러닝",
+                target="(대상외수강제한)(대상외수강제한)",
+            ),
+        ]
+    )
+    assert find_case_a_lectures([a, b, c]) == ["2150164205", "2150164206"]
+    assert find_case_a_lectures([a]) == []
+    assert find_case_a_lectures([]) == []
+
+
+def test_find_case_a_lectures_repeated_marker_dedup() -> None:
+    """SPR-90: 같은 문구 2회 반복((대상외수강제한)(대상외수강제한))도 1번만."""
+    lecture = parse_lectures(
+        [
+            _lecture(
+                code="2150164205",
+                name="이산수학",
+                target=f"컴퓨터학부 2학년{CASE_A_MARKER}{CASE_A_MARKER}",
+            )
+        ]
+    )[0]
+    assert find_case_a_lectures([lecture]) == ["2150164205"]
+
+
 # ── SPR-87: 부분 조회 필터 (filter_parsed_lectures) ─────────────
 
 
@@ -1024,6 +1065,93 @@ async def test_check_timetable_conflicts_no_conflict() -> None:
     assert result["has_blocking_conflict"] is False
     assert result["conflicts"] == []
     assert result["warnings"] == []
+
+
+# ── SPR-101: Case A (대상외수강제한) warnings 표면화 ──────────────
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_case_a_warning() -> None:
+    """target에 (대상외수강제한)이 있으면 warnings에 대상외 수강신청 목록 포함."""
+    a, b = parse_lectures(
+        [
+            _lecture(code="2150164203", schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164205",
+                name="이산수학",
+                schedule_room="화 10:30-12:00 (베어드홀 01201-박은영)",
+                target="컴퓨터학부 2학년(대상외수강제한)",
+            ),
+        ]
+    )
+    result = await server.check_timetable_conflicts(
+        [p.model_dump(mode="json") for p in [a, b]]
+    )
+    case_a = [w for w in result["warnings"] if "대상외 수강신청" in w]
+    assert len(case_a) == 1
+    assert "이산수학" in case_a[0]
+    assert "2150164205" in case_a[0]
+    # Case A가 아닌 강의는 목록에 없어야 한다
+    assert "2150164203" not in case_a[0]
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_no_case_a_marker() -> None:
+    """target에 마커가 없으면 Case A warning 없음."""
+    a, b = parse_lectures(
+        [
+            _lecture(code="2150164203", schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(code="2150164204", schedule_room="화 10:30-12:00 (베어드홀 01201-박은영)"),
+        ]
+    )
+    result = await server.check_timetable_conflicts(
+        [p.model_dump(mode="json") for p in [a, b]]
+    )
+    assert not any("대상외 수강신청" in w for w in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_case_a_repeated_marker_dedup() -> None:
+    """SPR-90: (대상외수강제한) 2회 반복 표기도 과목당 1번만 경고."""
+    a, b = parse_lectures(
+        [
+            _lecture(code="2150164203", schedule_room="월 10:30-12:00 (베어드홀 01101-김자헌)"),
+            _lecture(
+                code="2150164205",
+                name="이산수학",
+                schedule_room="화 10:30-12:00 (베어드홀 01201-박은영)",
+                target="컴퓨터학부 2학년(대상외수강제한)(대상외수강제한)",
+            ),
+        ]
+    )
+    result = await server.check_timetable_conflicts(
+        [p.model_dump(mode="json") for p in [a, b]]
+    )
+    case_a = [w for w in result["warnings"] if "대상외 수강신청" in w]
+    assert len(case_a) == 1
+    assert case_a[0].count("이산수학") == 1
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_minimal_dict_target_preserved() -> None:
+    """최소 dict도 target을 주면 lax 경로(coerce)에서 보존돼 Case A 경고 동작.
+
+    code+slots만 넘기면 pass-through 필드는 유실되지만(도구 docstring 명시),
+    target은 SPR-101 스캔을 위해 lax 경로에서도 보존한다.
+    """
+    result = await server.check_timetable_conflicts(
+        [
+            {
+                "code": "2150164203",
+                "name": "이산수학",
+                "slots": [{"days": ["월"], "start_min": 630, "end_min": 720}],
+                "target": "컴퓨터학부 2학년(대상외수강제한)",
+            }
+        ]
+    )
+    case_a = [w for w in result["warnings"] if "대상외 수강신청" in w]
+    assert len(case_a) == 1
+    assert "이산수학" in case_a[0]
 
 
 # ── SPR-83: 최소 필드만 넘겨도 동작 (스키마 완화) ──────────────

@@ -78,12 +78,14 @@ from .timetable_cache import (
     save_timetable_cache,
 )
 from .timetable_parsing import (
+    CASE_A_MARKER,
     ParsedLecture,
     build_subject_groups,
     coerce_conflict_lecture,
     duplicate_slot_raws,
     filter_parsed_by_entered_year,
     filter_parsed_lectures,
+    find_case_a_lectures,
     find_conflicts,
     parse_lectures,
 )
@@ -959,9 +961,10 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         (분반이 아닌 별도 과목)은 "같은 과목 분반 중복 선택"으로 오판될 수 있습니다 —
         실제 subject_key를 알고 있으면 명시적으로 넘기세요.
     parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
-    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(target/field/
-    professor 등)는 유실됩니다 — 충돌 검사 결과를 후속 조합 입력에 그대로
-    재사용하지 마세요.
+    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(field/professor/
+    department 등)는 유실됩니다 — **예외로 `target`은 Case A(대상외수강제한)
+    스캔(SPR-101)에 필요해 lax 경로에서 보존**합니다. 충돌 검사 결과를 후속
+    조합 입력에 그대로 재사용하지 마세요.
 
     단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
     (전수 비교/O(N²) 우회 및 의미론 혼란 방지).
@@ -969,6 +972,9 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     반환: { conflicts: [Conflict], has_blocking_conflict: bool, warnings: [str] }
     Conflict는 겹치는 요일(days)과 구간(start_min/end_min) + 원본 슬롯 문자열을
     담습니다. uncertain/empty 슬롯은 충돌 검사에서 건너뛰고 warnings로 보고합니다.
+    warnings에는 대상외 수강신청(Case A) 목록도 포함됩니다 — 강의 `target`에
+    `(대상외수강제한)` 표기가 있는 강의 code/name을 나열하므로, 후보 저장·재개 시
+    그대로 conflicts_summary에 담으면 됩니다 (SPR-101).
     """
     if len(lectures) > 30:
         raise ValueError(
@@ -983,6 +989,22 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         warnings.append(
             f"불확정 강의 {len(skipped)}개 (uncertain/empty): "
             f"{', '.join(skipped)} — 충돌 검사에서 제외"
+        )
+    # Case A (대상외수강제한) 스캔 (SPR-101) — target에 마커가 있는 강의를 도구
+    # 레벨에서 표면화해 후보 저장·재개 시 누락 위험을 제거한다. LLM 판독 의존을
+    # 도구 보장으로 승격. SPR-90 중복 표기((대상외수강제한)(대상외수강제한))는
+    # 존재 여부만 판정하므로 1건으로만 보고된다.
+    case_a_codes = find_case_a_lectures(parsed)
+    if case_a_codes:
+        name_by_code = {p.code: p.name for p in parsed}
+        labeled = ", ".join(
+            f"{name_by_code[c]}[{c}]" if name_by_code.get(c) else c
+            for c in case_a_codes
+        )
+        warnings.append(
+            f"대상외 수강신청 필요 과목 {len(case_a_codes)}개 "
+            f"(Case A — target에 {CASE_A_MARKER} 표기): {labeled} — "
+            f"정규 수강신청이 아니라 별도 '대상외 수강신청' 기간에 담아야 합니다"
         )
     # 동일 강의 내 (요일+시작+종료) 중복 슬롯 방어 — 파싱 dedup(SPR-82) 후 정상
     # 흐름에서는 발생하지 않지만, 수동 dict/구버전 데이터로 들어오면 경고로 보고.
@@ -1139,11 +1161,14 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
 
     3-tier 로딩 순서 (force_refresh=False일 때):
     1. 로컬 캐시 — 이전 호출에서 빌드해 둔 파일 (즉시)
-    2. 번들 seed — 패키지에 커밋된 정적 파일 (즉시, 메인테이너가 연 1회 갱신)
+    2. 번들 seed — 패키지에 커밋된 정적 파일 (즉시, 메인테이너가 학기별 갱신)
     3. 자동 빌드 — USAINT에서 실시간 fetch (10~20초, 로컬 캐시에 저장)
 
+    semester는 오늘 날짜 기준 현재 학기(1학기/2학기)를 자동 사용. 캐시/seed의
+    semester가 현재 학기와 다르면(학기 특이적 학과 신설/통폐합 미반영 위험) 무시하고
+    자동 빌드로 재생성한다 — 응답 semester는 항상 현재 학기 기준.
+
     학과 신설/통폐합이 의심되면 force_refresh=True로 강제 재빌드.
-    semester는 오늘 날짜 기준 현재 학기(1학기/2학기)를 자동 사용.
 
     반환: {year, semester, mapping, count, _cache: {source, built_at, age_days}}.
     source="cache" | "bundled" | "fresh" 로 데이터 출처 표시.
@@ -1152,6 +1177,7 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
     세션이 만료된 경우에도 동일하게 자동 재로그인이 진행됩니다.
     """
     now = datetime.now(timezone.utc)
+    _, current_semester = current_academic_period()
 
     if not force_refresh:
         cached, built_at = load_dept_map_cache(year)
@@ -1160,26 +1186,39 @@ async def load_department_map(year: int, force_refresh: bool = False) -> dict:
             and built_at is not None
             and is_department_map_fresh(built_at, now=now)
         ):
-            return _format_dept_map_response(cached, "cache", built_at, now)
+            if cached.semester == current_semester:
+                return _format_dept_map_response(cached, "cache", built_at, now)
+            logger.info(
+                "학과-단과대 로컬 캐시 semester 불일치 (캐시=%s, 현재=%s) — 자동 빌드",
+                cached.semester,
+                current_semester,
+            )
 
         bundled = load_bundled_department_map(year)
         if bundled is not None and is_department_map_fresh(
             bundled.built_at, now=now
         ):
-            return _format_dept_map_response(bundled, "bundled", bundled.built_at, now)
+            if bundled.semester == current_semester:
+                return _format_dept_map_response(
+                    bundled, "bundled", bundled.built_at, now
+                )
+            logger.info(
+                "학과-단과대 번들 seed semester 불일치 (seed=%s, 현재=%s) — 자동 빌드",
+                bundled.semester,
+                current_semester,
+            )
 
-    _, semester = current_academic_period()
     service = RusaintService()
 
     async def call(session_json: str):
         return await service.build_department_map(
-            session_json, year=year, semester=semester
+            session_json, year=year, semester=current_semester
         )
 
     built = await _run_with_session(call)
     dm = DepartmentMap(
         year=year,
-        semester=semester,
+        semester=current_semester,
         mapping=built["mapping"],
         built_at=now,
     )

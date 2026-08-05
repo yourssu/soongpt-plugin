@@ -197,7 +197,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 - **Flex**: 인터뷰 `time_preferences`/`subject_preferences`/`semester_strategy`를 반영해 여백을 채운다 (전공 비중, 원하는 시간대, 목표 학점 등).
 - **분반 선택은 반드시 `subject_groups`(subject_key) 기준**으로 한다 — `name`으로 묶지 말 것(같은 name 다른 학과 별개 수업 존재).
 - 같은 과목의 다른 분반/대체 과목이 있으면 같이 제시한다.
-- **Case A 스캔 (조립 직후 필수)**: 조립한 후보의 **모든 강의**(Base/Flex/채플/충돌 교체분 포함) `target`에서 `(대상외수강제한)` 표기를 확인해 **"대상외 수강신청 필요 과목" 목록**을 만든다. 이 목록은 아래 [사용자 제시](#사용자-제시)에서 후보별로 **반드시** 전달한다 (선택적 장단점이 아니라 필수 항목).
+- **Case A 스캔 (조립 직후 필수)**: 조립한 후보의 **모든 강의**(Base/Flex/채플/충돌 교체분 포함) `target`에서 `(대상외수강제한)` 표기를 확인해 **"대상외 수강신청 필요 과목" 목록**을 만든다. 이 목록은 아래 [사용자 제시](#사용자-제시)에서 후보별로 **반드시** 전달한다 (선택적 장단점이 아니라 필수 항목). **`check_timetable_conflicts`의 warnings에도 이 목록이 자동 포함되므로**(SPR-101), 이 스캔은 사용자 제시용 표기용이고 `conflicts_summary` 기록은 도구 warnings로 보장된다 — 놓쳐도 후보 저장·재개 시 누락되지 않는다.
 
 ## 충돌 검사 루프 (N=5 상한)
 
@@ -244,7 +244,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
     - `lecture_codes`: 선택 강의 `code` 목록 (분반 포함 10자리 — `parse_lectures_cache`의 code 그대로)
     - `total_credits`: 학점 합계 (float) — **채플 학점(0.5~1.0)은 제외** (학사규정: 채플은 학기 학점 상한에 안 걸림)
     - `has_blocking_conflict`: 마지막 충돌 검사 결과 (bool)
-    - `conflicts_summary`: 충돌/불확정/empty warnings 요약 — **`check_timetable_conflicts`의 `warnings` 포함 필수**. **Case A `(대상외수강제한)` 표기 과목 목록도 반드시 포함**한다 — 후보 확정 후(재개 시)에도 "대상외 수강신청 기간 필요"가 유지되도록 (시각화 화면에는 표시되지 않으므로, 안내는 후보 제시 시점과 재개 시에 한다):
+    - `conflicts_summary`: 충돌/불확정/empty warnings 요약 — **`check_timetable_conflicts`의 `warnings` 포함 필수**. 도구 warnings에 **Case A `(대상외수강제한)` 표기 과목 목록이 이미 포함**되므로(SPR-101, LLM 판독 없이 도구가 자동 표면화) 이를 그대로 담으면 된다 — 후보 확정 후(재개 시)에도 "대상외 수강신청 기간 필요"가 유지되도록 (시각화 화면에는 표시되지 않으므로, 안내는 후보 제시 시점과 재개 시에 한다):
       ```
       conflicts_summary="충돌 없음. 대상외 수강신청 필요 과목: 이산수학, 머신러닝"
       ```
