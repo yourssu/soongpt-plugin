@@ -451,26 +451,40 @@ def filter_parsed_by_entered_year(
     서버 측 학번 필터 — composer 3단계가 교선 ~337강의 parsed 전체(~300KB,
     50K 파일 스필)를 받지 않고 내 학번에 해당하는 줄(field_tags)만 가진 강의를
     미리 받게 한다:
-      - 학번 태그가 있는 강의: 매칭 줄이 하나라도 있으면 유지 + field_tags를
-        매칭 줄만으로 교체. 매칭 줄이 없으면(해당 학번 미개설) 제외.
+      - 학번 태그가 있는 강의: 매칭 줄이 하나라도 있으면 유지 + field_tags는
+        매칭 학번 태그 줄만 남기고 교체. 매칭 줄이 없으면(해당 학번 미개설)
+        제외.
       - 학번 태그가 없는 강의(전공 "[4차]", field 없음): 판정 불가 → 보수적으로
         유지하되 field_tags는 그대로 둔다 (교선 외 카테고리에 실수로 걸려도
         강의가 통째로 사라지지 않게).
+      - 비학번 태그 줄("기독교과목" 등)이 섞인 강의: 학번 태그 줄은 매칭만
+        남기고 비학번 태그 줄은 그대로 유지 (SPR-104 — 판정 불가 항목 유지는
+        유지하되 컴팩트 응답 field_tags 6줄 전체 노출 불균형 해소). 매칭 학번
+        태그가 없어도 비학번 태그 줄이 있으면 전 학번 개방 가능성으로 보수 유지
+        (field_tags는 비학번 태그 줄만 남는다).
 
     순수 함수 — 입력 parsed를 변경하지 않고 model_copy로 새 리스트를 만든다.
     """
     result: list[ParsedLecture] = []
     for lecture in parsed:
-        has_tag = any(_has_entrance_tag(t) for t in lecture.field_tags)
-        # 모든 줄이 학번 태그인 경우에만 필터 적용 — 태그 없는 줄이 하나라도
-        # 있으면(전 학번 개방 의미 가능) 판정 불가로 유지 (SPR-99 critic 반영)
-        if has_tag and all(_has_entrance_tag(t) for t in lecture.field_tags):
-            matched = field_tags_for_entered_year(lecture.field_tags, entered_year)
-            if not matched:
-                continue  # 학번 태그 있는데 매칭 없음 → 해당 학번엔 안 열림
-            result.append(lecture.model_copy(update={"field_tags": matched}))
-        else:
-            result.append(lecture)  # 판정 불가 → 유지
+        tag_lines = [t for t in lecture.field_tags if _has_entrance_tag(t)]
+        non_tag_lines = [t for t in lecture.field_tags if not _has_entrance_tag(t)]
+        if not tag_lines:
+            # 학번 태그 없음 → 판정 불가 → 보수 유지 (field_tags 그대로)
+            result.append(lecture)
+            continue
+        matched = field_tags_for_entered_year(tag_lines, entered_year)
+        if not matched and not non_tag_lines:
+            continue  # 학번 태그만 있는데 매칭 없음 → 해당 학번엔 안 열림
+        # 학번 태그 줄은 매칭만, 비학번 태그 줄("기독교과목" 등)은 유지 — 원본
+        # 순서 보존 (SPR-104)
+        trimmed = [
+            line
+            for line in lecture.field_tags
+            if not _has_entrance_tag(line)
+            or _line_covers_entered_year(line, entered_year)
+        ]
+        result.append(lecture.model_copy(update={"field_tags": trimmed}))
     return result
 
 
