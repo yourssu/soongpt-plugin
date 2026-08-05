@@ -34,7 +34,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 | 1. 프로필·수강이력 | `get_usaint_snapshot()` + `get_user_profile()` | 핵심 필드(`department`, `grade`, `entered_year`, `college`) 모두 채워짐 | 하나라도 누락 | 진입 시 인삿말 + USAINT 로그인 진행. 프로필·수강이력을 단일 SoT로 저장. `college`는 USAINT 제공 필드(SPR-55)지만 그래도 비면 사용자에게 물어 `set_user_profile`로 입력 |
 | 2. 졸업사정표 | `get_graduation_status()` | `_cache.source == "cache"` (30일 이내) | `source`가 `"fresh"`(방금 새로 가져옴) — 그대로 사용, 별도 조치 불필요 | `force_refresh=True`는 사용자가 "새로고침"을 명시했을 때만 |
 | 3. 인터뷰 | `get_interview(year, semester)` | `completion`의 3개 섹션(`semester_strategy`, `time_preferences`, `subject_preferences`) 모두 `true` | 하나라도 `false`/없음 | 위임 대상: `soongpt-interview`. 이어서/처음부터 여부는 하위 스킬이 판단 |
-| 4. 강의 캐시 | `load_lectures_cache(year, semester)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures` |
+| 4. 강의 캐시 | `load_lectures_cache(year, semester, include_lectures=False)` | `_cache.source == "cache"` | `source`가 `"stale"`(새로고침 여부를 사용자에게 확인) 또는 `"miss"` | 위임 대상: `soongpt-available-lectures`. 캐시 히트 확인만 하므로 메타 모드(SPR-76) |
 | 5. 시간표 후보 생성 | `load_timetable_candidates(year, semester)` | 후보 없음 (`_cache.source == "miss"`) → composer에 **신규 조합** 위임 | **후보 존재 (`source == "hit"`)** → composer에 **무조건 재개 위임** | **"만족" 판정은 builder가 할 수 없다**(치명②) — 후보 존재 시 composer가 10단계에서 인터뷰/강의 캐시 mismatch 판정을 한다. 위임 대상: `soongpt-timetable-composer` |
 
 `year`/`semester`는 현재 학기 기준: 1~7월="1", 8~12월="2".
@@ -69,7 +69,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 ### 4. 들을 수 있는 과목 조회 (위임: `soongpt-available-lectures`)
 
-- `load_lectures_cache(year, semester)` 호출
+- `load_lectures_cache(year, semester, include_lectures=False)` 호출 (메타 모드 — 캐시 히트 여부만 확인)
 - 스킵 조건 만족 시: 캐시 요약(총 강의 수 = `total_lectures`, 그룹 수 = `count` — SPR-78)만 보여주고 5단계로
 - `"stale"`이면 사용자에게 새로고침 여부를 물어본 뒤 결정, `"miss"`면 바로 위임
 - 위임 시 `soongpt-available-lectures` 스킬이 전체 진입 절차(프로필 필수 필드 체크 포함)를 처음부터 수행
@@ -85,7 +85,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 - composer에서 사용자가 후보(A/B/C)를 **확정**하면, 완성된 시간표를 한눈에 보여주기 위해 `soongpt-timetable-visualize`로 위임한다. 후보 확정 직후가 **기본 후속 시점**이다.
 - **입력 맞춤 (중요)**: 시각화 입력은 `find_lectures` 반환과 동일한 **lecture dict 목록**이다. `code`/`name`/`professor`/`department`/`time_points`에 더해 **`schedule_room`**(요일·시간·강의실 문자열)이 있어야 그리드에 그릴 수 있다 — code 목록만으로는 렌더링할 수 없다.
-- 4단계와 composer가 모두 거치는 `load_lectures_cache` 결과(`schedule_room` 포함 원본 lecture dict)가 **같은 대화 맥락에 남아있으므로**, 확정 후보의 lecture dict을 추가 조회 없이 시각화로 넘길 수 있다. 맥락에 빠져 있으면 `load_lectures_cache`로 다시 확보해 넘긴다.
+- **4단계·composer는 `include_lectures=False`(그룹 메타)로 호출하므로**(SPR-76) 원본 lecture dict(`schedule_room` 포함)는 대화 맥락에 남지 않는다. 시각화에 넘길 lecture dict이 필요하면 `load_lectures_cache(year, semester)`(기본 상세)를 호출해 확보한 뒤, 확정 후보의 code에 해당하는 항목만 골라 넘긴다.
 - 렌더링(정적 HTML 생성·기본 브라우저 오픈·시간 충돌 빨간 테두리 강조)은 시각화 스킬이 알아서 처리한다 — builder는 lecture dict을 전달하고 위임만 한다.
 - 시각화는 "기본"이지 강제가 아니다 — 사용자가 원하지 않으면 6단계 없이 흐름을 마친다.
 
@@ -105,7 +105,7 @@ description: 숭실대 시간표 완성 전체 흐름 오케스트레이터 — 
 
 1. `get_usaint_snapshot()` / `get_graduation_status()`로 1~2단계 상태 재확인 (캐시 기반이라 비용 적음)
 2. `get_interview(year, semester)`의 `completion`으로 3단계 상태 확인
-3. `load_lectures_cache(year, semester)`의 `_cache.source`로 4단계 상태 확인
+3. `load_lectures_cache(year, semester, include_lectures=False)`의 `_cache.source`로 4단계 상태 확인
 4. `load_timetable_candidates(year, semester)`로 5단계 상태 확인 — 후보가 있으면 그대로 5단계로 (builder가 mismatch를 판정하지 않고 composer에 위임)
 5. 위 결과 중 "진입/스킵 결정 규칙표"의 진행 조건에 처음 걸리는 단계부터 이어서 진행
 

@@ -26,12 +26,12 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 ### 2. 강의 캐시 확인
 
-- `load_lectures_cache(year, semester)` 호출
+- `load_lectures_cache(year, semester, include_lectures=False)` 호출 (SPR-76 — 캐시 히트 여부만 확인하면 되므로 그룹 메타만 받는다. 625KB 상세 응답을 방지)
 - `_cache.source`:
   - `"cache"`: 3번으로
   - `"stale"`: 사용자에게 새로고침 여부를 물어본다. 새로고침 → `soongpt-available-lectures` 위임 후 복귀. 아니면 stale 데이터로 계속
   - `"miss"`: `soongpt-available-lectures`로 위임 후 복귀
-- **`groups["chapel"]` 보존 (④ 채플 식별에 필수)**: 2번 응답의 `groups["chapel"].lectures[].code` 집합을 컨텍스트에 **버리지 말고 유지**. `parse_lectures_cache`는 `parsed`만 주고 groups를 주지 않으므로, ④ 공통 규칙의 "code ∈ groups[chapel]" 식별(소그룹채플 `category` 미실측 대비 회피 전략)은 이 2번 응답의 groups로만 가능하다.
+- **`groups["chapel"].codes` 보존 (④ 채플 식별에 필수)**: 2번 응답의 `groups["chapel"].codes` 집합을 컨텍스트에 **버리지 말고 유지**. `parse_lectures_cache`는 `parsed`만 주고 groups를 주지 않으므로, ④ 공통 규칙의 "code ∈ groups[chapel]" 식별(소그룹채플 `category` 미실측 대비 회피 전략)은 이 2번 응답의 groups로만 가능하다. (메타 모드의 groups에는 강의 상세가 없고 code 목록(`codes`)만 있다 — 채플 code 식별에는 충분하다.)
 
 ### 3. 데이터 원본 확보 (재개 mismatch 판정용 스냅샷)
 
@@ -40,7 +40,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 - `get_graduation_status()` 호출 — **부족 학점(카테고리별 difference)만** 참고 (아래 [미이수 필수](#미이수-필수-절차-명문화) 절차 참고)
 - 이 스킬이 나중에 저장할 `generation_params`에 쓸 기준값 두 개를 기억한다:
   - `interview_updated_at` = `get_interview()` 응답의 `interview.updated_at`
-  - `lectures_cached_at` = `load_lectures_cache()` 응답의 `_cache.cached_at`
+  - `lectures_cached_at` = 위 2번 `load_lectures_cache(year, semester, include_lectures=False)` 응답의 `_cache.cached_at`
 
 ## 파싱 (1회만)
 
@@ -211,7 +211,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
     ```
     generation_params={
       "interview_updated_at": <get_interview().interview.updated_at>,
-      "lectures_cached_at": <load_lectures_cache()._cache.cached_at>
+      "lectures_cached_at": <load_lectures_cache(year, semester, include_lectures=False)._cache.cached_at>
     }
     ```
 - 같은 `name`으로 다시 저장하면 기존 후보가 **교체(replace)**된다 — 수정 반복 시 폐기 후보가 쌓이지 않는다. 반환의 `replaced`로 확인할 수 있다.
@@ -223,11 +223,11 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 "후보 이어서" 등으로 재진입하면:
 
-1. `get_interview(year, semester)` / `load_lectures_cache(year, semester)` / `load_timetable_candidates(year, semester)` 호출.
+1. `get_interview(year, semester)` / `load_lectures_cache(year, semester, include_lectures=False)` / `load_timetable_candidates(year, semester)` 호출.
 2. 후보가 없으면(`_cache.source == "miss"`) [진입 절차](#진입-절차-필수)부터 새로 시작.
 3. 후보가 있으면 **mismatch 판정**:
    - `generation_params.interview_updated_at` ≠ `get_interview().interview.updated_at`
-     **또는** `generation_params.lectures_cached_at` ≠ `load_lectures_cache()._cache.cached_at`
+     **또는** `generation_params.lectures_cached_at` ≠ `load_lectures_cache(year, semester, include_lectures=False)._cache.cached_at`
      → **mismatch** (키 부재는 `dict.get` 폴백 — 구버전 저장 데이터 대비)
    - 타임스탬프는 **ISO 문자열 그대로 비교하지 말고 datetime으로 파싱해 비교**한다 — Z/±오프셋/소수점 표기 차이로 생기는 오탐을 막는다.
    - **`get_interview()`가 null이면 mismatch로 간주** (인터뷰가 지워졌다는 것 자체가 변경 신호).
