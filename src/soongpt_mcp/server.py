@@ -119,7 +119,8 @@ _COMPACT_LIMIT = 150
 def _compact_lecture(lecture: ParsedLecture) -> dict[str, Any]:
     """entered_year 조회용 교선 후보 컴팩트 dict (SPR-99).
 
-    Flex 후보 좁히기에 필요한 최소 — code/name/credits + 매칭 field_tags.
+    Flex 후보 좁히기에 필요한 최소 — code/name/credits + field_tags
+    (학번 매칭 줄 + 비학번 태그 줄, SPR-104).
     slots·raw·target 등 시간 상세는 `codes=[...]` 지연 조회로 재확보한다.
     이 축소로 337강의 교선 응답을 50K 파일 스필 임계값 미만(~32~38KB)으로
     유지한다. 컴팩트 항목은 slots가 없어 `check_timetable_conflicts`에
@@ -848,10 +849,13 @@ async def parse_lectures_cache(
     필터**를 적용한다 — 교양선택 "전체"처럼 큰 카테고리(~337강의)의 parsed
     전체(50K 파일 스필)를 받지 않고, `field_tags`에서 entered_year에 해당하는
     줄을 가진 강의만 반환한다. 지정 시 parsed 항목은 **컴팩트 형태**
-    (`code`/`name`/`credits`/`field_tags`만 — field_tags는 매칭 줄로 정리,
-    slots·raw 등 시간 상세는 생략)로 내려온다. 시간 상세가 필요하면 그 강의
-    code를 `codes=[...]`로 **지연 조회**해 받는다 (composer 3단계 교선 절차).
-    학번 태그가 없는 강의(전공 "[4차]" 등)는 판정 불가라 보수적으로 유지된다.
+    (`code`/`name`/`credits`/`field_tags`만 — field_tags는 매칭 학번 태그
+    줄 + 비학번 태그 줄("기독교과목" 등)로 정리 (SPR-104), slots·raw 등
+    시간 상세는 생략)로 내려온다. 시간 상세가 필요하면 그 강의 code를
+    `codes=[...]`로 **지연 조회**해 받는다 (composer 3단계 교선 절차).
+    학번 태그가 없는 강의(전공 "[4차]" 등)는 판정 불가라 보수적으로 유지되고,
+    비학번 태그 줄이 섞인 강의도 전 학번 개방 가능성으로 보수 유지된다 (학번
+    태그 줄은 매칭만 남김).
     컴팩트 항목은 slots가 없으므로 `check_timetable_conflicts`에 그대로
     넘기지 말 것 (ValueError). 응답 크기를 위해 `include_subject_groups=False`
     와 함께 쓰는 것을 권장한다 (전체 인덱스 ~20KB도 50K 한도에 같이 계산됨).
