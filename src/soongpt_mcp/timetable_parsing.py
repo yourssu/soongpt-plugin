@@ -23,7 +23,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -280,12 +280,18 @@ def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
     동작하도록, 누락 가능한 선택 필드는 다음 기본값으로 채운다:
 
       - subject_key: code[:-2] (parse_lectures와 동일 규칙 — 분반 중복 판정용)
+      - parse_status: 기본 "ok", 단 slots=[]면 "empty" (빈 강의는 충돌 검사 제외)
       - parse_warnings / raw: [] / None (충돌 검사 로직에서 미사용)
       - slots[].room / professor: None (충돌 검사 로직에서 미사용)
       - slots[].raw: "월 10:30-12:00" 형태로 재구성 (충돌 메시지 표시용)
 
-    code/slots 누락 시 ValueError, 타입 오류 시 TypeError를 던진다
-    (조용한 "충돌 없음" 오판 방지).
+    주의: 이 lax 경로는 충돌 검사 전용이다. pass-through 필드(target/field/
+    professor/division/department/category/sub_category/field_tags)는 기본값으로
+    유실된다 — 충돌 검사 결과를 후속 조합 입력에 재사용하지 말 것. 전체 parsed
+    dict를 넘기면 모든 필드가 그대로 보존된다.
+
+    code/slots 누락 시 ValueError, 타입 오류 시 TypeError, 잘못된 parse_status
+    시 ValueError를 던진다 (조용한 "충돌 없음" 오판 방지).
     """
     try:
         return ParsedLecture.model_validate(data)
@@ -332,18 +338,36 @@ def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
 
     subject_key = data.get("subject_key")
     if not subject_key:
-        subject_key = code[:-2] if len(code) >= 2 else code
+        subject_key = code[:-2]  # parse_lectures와 동일 규칙 (길이 무관 code[:-2])
 
-    return ParsedLecture(
-        code=code,
-        name=data.get("name"),
-        subject_key=subject_key,
-        credits=data.get("credits"),
-        slots=slots,
-        parse_status=data.get("parse_status", "ok"),
-        parse_warnings=data.get("parse_warnings", []),
-        raw=data.get("raw"),
+    valid_statuses = get_args(ParseStatus)
+    explicit_status = data.get("parse_status")
+    if explicit_status is not None and explicit_status not in valid_statuses:
+        raise ValueError(
+            f"code {code}: parse_status는 {'/'.join(valid_statuses)} 중 "
+            f"하나여야 합니다 (전달: {explicit_status!r})"
+        )
+    parse_status: ParseStatus = (
+        explicit_status
+        if explicit_status is not None
+        else ("empty" if not slots else "ok")
     )
+
+    try:
+        return ParsedLecture(
+            code=code,
+            name=data.get("name"),
+            subject_key=subject_key,
+            credits=data.get("credits"),
+            slots=slots,
+            parse_status=parse_status,
+            parse_warnings=data.get("parse_warnings", []),
+            raw=data.get("raw"),
+        )
+    except ValidationError as exc:
+        raise ValueError(
+            f"code {code}: 잘못된 강의 dict입니다 (name/credits 등 타입 확인): {exc}"
+        ) from exc
 
 
 def _slots_overlap(sa: TimeSlot, sb: TimeSlot) -> bool:

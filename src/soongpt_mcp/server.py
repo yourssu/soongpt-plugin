@@ -657,10 +657,13 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         end_min(자정 이후 분). room/professor/raw는 선택 — 없으면 None 또는
         "요일 시-종"으로 자동 재구성
       - name / credits (선택)
-      - parse_status ("ok" | "uncertain" | "empty", 기본 "ok")
+      - parse_status ("ok" | "uncertain" | "empty", 기본 "ok" — slots가
+        비어 있으면 "empty"로 처리해 충돌 검사에서 제외)
       - subject_key / parse_warnings / raw (선택 — 기본값 자동 채움)
     parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
-    (하위 호환).
+    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(target/field/
+    professor 등)는 유실됩니다 — 충돌 검사 결과를 후속 조합 입력에 그대로
+    재사용하지 마세요.
 
     단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
     (전수 비교/O(N²) 우회 및 의미론 혼란 방지).

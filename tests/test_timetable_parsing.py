@@ -785,3 +785,81 @@ async def test_check_timetable_conflicts_minimal_no_conflict() -> None:
     assert result["has_blocking_conflict"] is False
     assert result["conflicts"] == []
     assert result["warnings"] == []
+
+
+# ── SPR-83 critic 수정: 빈 slots / 잘못된 parse_status / 오버라이드 / 혼합 ──
+
+
+def test_coerce_conflict_lecture_empty_slots_is_empty() -> None:
+    """slots=[] + parse_status 미지정 → 'empty' (조용한 '충돌 없음' 오판 방지)."""
+    lecture = coerce_conflict_lecture({"code": "2150164203", "slots": []})
+    assert lecture.parse_status == "empty"
+    assert lecture.slots == []
+
+
+def test_coerce_conflict_lecture_invalid_parse_status_raises() -> None:
+    """parse_status에 유효하지 않은 값 → ValueError 재포장 (pydantic 노출 방지)."""
+    with pytest.raises(ValueError, match="parse_status"):
+        coerce_conflict_lecture(
+            {
+                "code": "2150164203",
+                "parse_status": "yes",
+                "slots": [{"days": ["월"], "start_min": 630, "end_min": 720}],
+            }
+        )
+
+
+def test_coerce_conflict_lecture_explicit_subject_key() -> None:
+    """subject_key 명시 시 code[:-2] 대신 명시값 유지."""
+    lecture = coerce_conflict_lecture(
+        {
+            "code": "2150164203",
+            "subject_key": "custom-key",
+            "slots": [{"days": ["월"], "start_min": 630, "end_min": 720}],
+        }
+    )
+    assert lecture.subject_key == "custom-key"
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_empty_slots_warns() -> None:
+    """slots=[] 강의는 parse_status='empty'로 처리 → warnings에 보고."""
+    result = await server.check_timetable_conflicts(
+        [
+            {"code": "2150164203", "slots": []},
+            {
+                "code": "2150164204",
+                "slots": [{"days": ["월"], "start_min": 630, "end_min": 720}],
+            },
+        ]
+    )
+    assert result["has_blocking_conflict"] is False
+    assert result["conflicts"] == []
+    assert result["warnings"] and "불확정 강의 1개" in result["warnings"][0]
+    assert "2150164203" in result["warnings"][0]
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_mixed_minimal_and_full() -> None:
+    """최소 dict + 전체 parsed dict 혼합 리스트도 동작 (완화 하위 호환)."""
+    full = parse_lectures(
+        [
+            _lecture(
+                code="3161011001",
+                schedule_room="화 09:30-11:00 (한경직기념관 101-홍길동)",
+            )
+        ]
+    )[0]
+    result = await server.check_timetable_conflicts(
+        [
+            full.model_dump(mode="json"),
+            {
+                "code": "2150164203",
+                "name": "알고리즘",
+                "slots": [{"days": ["화"], "start_min": 570, "end_min": 660}],
+            },
+        ]
+    )
+    assert result["has_blocking_conflict"] is True
+    assert len(result["conflicts"]) == 1
+    assert result["warnings"] == []
