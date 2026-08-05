@@ -386,10 +386,11 @@ def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
       - slots[].room / professor: None (충돌 검사 로직에서 미사용)
       - slots[].raw: "월 10:30-12:00" 형태로 재구성 (충돌 메시지 표시용)
 
-    주의: 이 lax 경로는 충돌 검사 전용이다. pass-through 필드(target/field/
-    professor/division/department/category/sub_category/field_tags)는 기본값으로
-    유실된다 — 충돌 검사 결과를 후속 조합 입력에 재사용하지 말 것. 전체 parsed
-    dict를 넘기면 모든 필드가 그대로 보존된다.
+    주의: 이 lax 경로는 충돌 검사 전용이다. pass-through 필드(field/professor/
+    division/department/category/sub_category/field_tags)는 기본값으로 유실된다 —
+    충돌 검사 결과를 후속 조합 입력에 재사용하지 말 것. 예외로 `target`은
+    Case A(대상외수강제한) 스캔(SPR-101)에 필요해 보존한다. 전체 parsed dict를
+    넘기면 모든 필드가 그대로 보존된다.
 
     code/slots 누락 시 ValueError, 타입 오류 시 TypeError, 잘못된 parse_status
     시 ValueError를 던진다 (조용한 "충돌 없음" 오판 방지).
@@ -464,6 +465,8 @@ def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
             parse_status=parse_status,
             parse_warnings=data.get("parse_warnings", []),
             raw=data.get("raw"),
+            # lax 경로에서도 Case A 스캔(SPR-101)이 동작하도록 target 보존
+            target=data.get("target"),
         )
     except ValidationError as exc:
         raise ValueError(
@@ -536,6 +539,28 @@ def find_conflicts(lectures: list[ParsedLecture]) -> list[Conflict]:
                     if _slots_overlap(slot_a, slot_b):
                         conflicts.append(_build_conflict(a, b, slot_a, slot_b))
     return conflicts
+
+
+# Case A(대상외 수강신청 제한) 판별 마커 — target에 이 문자열이 있으면 정규
+# 수강신청이 아니라 별도 '대상외 수강신청' 기간에 담아야 한다. USAINT 원본이
+# 같은 문구 2회 반복((대상외수강제한)(대상외수강제한))으로 표기할 수 있어
+# (SPR-90), 판정은 존재 여부(부분 문자열 포함)만 본다.
+CASE_A_MARKER = "(대상외수강제한)"
+
+
+def find_case_a_lectures(lectures: list[ParsedLecture]) -> list[str]:
+    """target에 (대상외수강제한)이 있는 강의 code 목록 (없으면 []).
+
+    Case A(대상외 수강신청 제한)를 도구 레벨에서 표면화하기 위한 순수 스캔 —
+    check_timetable_conflicts의 warnings에서 사용한다 (SPR-101). 이전에는 전적으로
+    LLM의 target 판독에 의존해, 놓치면 후보 저장·재개 시 누락 위험이 있었다.
+
+    SPR-90 중복 표기: (대상외수강제한)(대상외수강제한) 처럼 2회 반복돼도
+    부분 문자열 포함 여부만 판정해 code를 1번만 반환한다.
+    """
+    return [
+        p.code for p in lectures if p.target and CASE_A_MARKER in p.target
+    ]
 
 
 def duplicate_slot_raws(lecture: ParsedLecture) -> list[str]:

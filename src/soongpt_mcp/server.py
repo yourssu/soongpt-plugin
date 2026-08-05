@@ -78,10 +78,12 @@ from .timetable_cache import (
     save_timetable_cache,
 )
 from .timetable_parsing import (
+    CASE_A_MARKER,
     build_subject_groups,
     coerce_conflict_lecture,
     duplicate_slot_raws,
     filter_parsed_lectures,
+    find_case_a_lectures,
     find_conflicts,
     parse_lectures,
 )
@@ -913,9 +915,10 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         (분반이 아닌 별도 과목)은 "같은 과목 분반 중복 선택"으로 오판될 수 있습니다 —
         실제 subject_key를 알고 있으면 명시적으로 넘기세요.
     parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
-    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(target/field/
-    professor 등)는 유실됩니다 — 충돌 검사 결과를 후속 조합 입력에 그대로
-    재사용하지 마세요.
+    (하위 호환). 단, 최소 필드만 넘기면 pass-through 필드(field/professor/
+    department 등)는 유실됩니다 — **예외로 `target`은 Case A(대상외수강제한)
+    스캔(SPR-101)에 필요해 lax 경로에서 보존**합니다. 충돌 검사 결과를 후속
+    조합 입력에 그대로 재사용하지 마세요.
 
     단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
     (전수 비교/O(N²) 우회 및 의미론 혼란 방지).
@@ -923,6 +926,9 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     반환: { conflicts: [Conflict], has_blocking_conflict: bool, warnings: [str] }
     Conflict는 겹치는 요일(days)과 구간(start_min/end_min) + 원본 슬롯 문자열을
     담습니다. uncertain/empty 슬롯은 충돌 검사에서 건너뛰고 warnings로 보고합니다.
+    warnings에는 대상외 수강신청(Case A) 목록도 포함됩니다 — 강의 `target`에
+    `(대상외수강제한)` 표기가 있는 강의 code/name을 나열하므로, 후보 저장·재개 시
+    그대로 conflicts_summary에 담으면 됩니다 (SPR-101).
     """
     if len(lectures) > 30:
         raise ValueError(
@@ -937,6 +943,22 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
         warnings.append(
             f"불확정 강의 {len(skipped)}개 (uncertain/empty): "
             f"{', '.join(skipped)} — 충돌 검사에서 제외"
+        )
+    # Case A (대상외수강제한) 스캔 (SPR-101) — target에 마커가 있는 강의를 도구
+    # 레벨에서 표면화해 후보 저장·재개 시 누락 위험을 제거한다. LLM 판독 의존을
+    # 도구 보장으로 승격. SPR-90 중복 표기((대상외수강제한)(대상외수강제한))는
+    # 존재 여부만 판정하므로 1건으로만 보고된다.
+    case_a_codes = find_case_a_lectures(parsed)
+    if case_a_codes:
+        name_by_code = {p.code: p.name for p in parsed}
+        labeled = ", ".join(
+            f"{name_by_code[c]}[{c}]" if name_by_code.get(c) else c
+            for c in case_a_codes
+        )
+        warnings.append(
+            f"대상외 수강신청 필요 과목 {len(case_a_codes)}개 "
+            f"(Case A — target에 {CASE_A_MARKER} 표기): {labeled} — "
+            f"정규 수강신청이 아니라 별도 '대상외 수강신청' 기간에 담아야 합니다"
         )
     # 동일 강의 내 (요일+시작+종료) 중복 슬롯 방어 — 파싱 dedup(SPR-82) 후 정상
     # 흐름에서는 발생하지 않지만, 수동 dict/구버전 데이터로 들어오면 경고로 보고.
