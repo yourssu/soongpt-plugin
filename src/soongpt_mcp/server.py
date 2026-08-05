@@ -76,8 +76,8 @@ from .timetable_cache import (
     save_timetable_cache,
 )
 from .timetable_parsing import (
-    ParsedLecture,
     build_subject_groups,
+    coerce_conflict_lecture,
     find_conflicts,
     parse_lectures,
 )
@@ -651,7 +651,17 @@ async def parse_lectures_cache(year: int, semester: str) -> dict:
 async def check_timetable_conflicts(lectures: list[dict]) -> dict:
     """단일 후보 강의 리스트의 시간 충돌을 검사합니다.
 
-    입력: parse_lectures_cache의 parsed 항목(ParsedLecture dict) 리스트.
+    입력: 강의 dict 리스트. 각 항목의 최소 필드는 다음과 같습니다.
+      - code (str, 필수)
+      - slots (list, 필수): 각 slot에 days(요일 str list) / start_min /
+        end_min(자정 이후 분). room/professor/raw는 선택 — 없으면 None 또는
+        "요일 시-종"으로 자동 재구성
+      - name / credits (선택)
+      - parse_status ("ok" | "uncertain" | "empty", 기본 "ok")
+      - subject_key / parse_warnings / raw (선택 — 기본값 자동 채움)
+    parse_lectures_cache의 parsed 항목 dict 전체를 그대로 넘겨도 됩니다
+    (하위 호환).
+
     단일 후보(6~10과목)만 전달하세요. 30개 초과 시 ValueError를 반환합니다
     (전수 비교/O(N²) 우회 및 의미론 혼란 방지).
 
@@ -665,7 +675,7 @@ async def check_timetable_conflicts(lectures: list[dict]) -> dict:
             f"전달: {len(lectures)}개. 전수 비교 금지 — 1회 1후보만 전달하세요."
         )
 
-    parsed = [ParsedLecture.model_validate(item) for item in lectures]
+    parsed = [coerce_conflict_lecture(item) for item in lectures]
     skipped = [p.code for p in parsed if p.parse_status != "ok"]
     warnings: list[str] = []
     if skipped:
