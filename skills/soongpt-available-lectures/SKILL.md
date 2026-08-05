@@ -128,6 +128,10 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 분야 태그 반환). **학번 분야 판별은 downstream (composer)으로 이동** — fetch 단계
 에서는 학번 필터링을 하지 않는다. 1회 호출이라 3-0 묶음 규칙 대상이 아니다.
 
+- **사전 안내**: `find_lectures` 호출 **전에** 먼저 사용자에게 "교양선택 전체 조회는
+  20초 내외 걸릴 수 있어요" 수준의 문구로 대기 시간을 미리 알린다. (위 fetchTime
+  수초~30초대 변동, 실측 16.7초와 일관 — 단일 호출임에도 길 수 있음을 안내)
+
 ```
 find_lectures(year, semester, category_type="optional_elective",
               category="전체", summary=True)
@@ -149,12 +153,19 @@ find_lectures(year, semester, category_type="optional_elective",
    ```
    list_required_electives(year, semester)
    ```
+   - **사전 안내**: 조회 결과 과목명이 N개임을 확인한 뒤, **fetch 시작 전** 먼저
+     사용자에게 "교양필수 N개 과목 조회는 1~2분 걸릴 수 있어요" 수준의 문구로 대기
+     시간을 안내한다. (실측: 31과목 기준 벽시계 2분 3초 — N이 클수록 안내 필수)
 2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출 (약 4개씩 묶음 — 3-0 묶음 규칙, 이 단계가 호출 수가 가장 많음):
    ```
    find_lectures(year, semester, category_type="required_elective",
                  lecture_name="<과목명>", summary=True)
    ```
    → 서버가 `groups["required_elective_<과목명>"]` 키로 자동 저장
+   - **묶음 사이 진행 알림**: 3-0 묶음 규칙(약 4개씩)대로 묶음을 쏠 때마다, 해당
+     묶음 완료 후 사용자에게 "교양필수 X/N 과목 조회 완료" 형태로 진행 상황을
+     알린다 (X = 완료된 과목 누계). 마지막 묶음이 끝나면 "교양필수 N/N 과목 조회
+     완료"로 전체 완료를 안내한다.
    - optional_elective의 `[‘NN이후]` 학번 태그와 달리 교양필수 과목명은 **연도 태그가 없으므로 입학연도 필터링 없이 전부** 조회
    - 과목명은 분야 접두(예: `[SW와AI]AI개발과실전`)와 일반명(예: `한반도평화와통일`)이 혼재. `list_required_electives`가 반환한 문자열을 그대로 `lecture_name`으로 사용 (수강대상 제한은 target 필드로 별도 활용)
    - **빈 결과 처리**: 이번 학기 미개설 과목은 `find_lectures`가 빈 결과(`count: 0`)를 반환하므로, 그룹은 캐시에 빈 그룹으로 저장되되 **결과 요약(4단계)에서 count 0 그룹은 제외**한다. 예외가 나면 서버가 error 그룹을 기록하고 예외를 올린다 (정상 무시)
