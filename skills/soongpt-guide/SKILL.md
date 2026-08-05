@@ -30,7 +30,7 @@ soongpt 플러그인으로 뭘 할 수 있는지, 지금 상황에서 어떤 도
 | 강의검색 | `list_optional_elective_categories` | 해당 학기 교양선택 분야 목록 (학번별 분류 포함) | 위와 동일 |
 | 강의검색 | `list_required_electives` | 해당 학기 교양필수 과목명 목록 (분야 접두 포함) | 위와 동일 |
 | 강의캐시 | `load_lectures_cache` | 통합 조회한 강의 목록 캐시 로드 (7일 TTL — 저장은 `find_lectures`가 서버 측 자동). `include_lectures=False`면 그룹 메타(codes 포함)만 반환 (SPR-76) | `soongpt-available-lectures` 내부에서 사용 |
-| 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사. `summary=True`면 parsed 생략, `codes`/`subject_keys`/`category_prefixes`로 부분 조회 (SPR-76/SPR-87) | `soongpt-timetable-composer` 내부에서 사용 |
+| 시간표 파싱 | `parse_lectures_cache` / `check_timetable_conflicts` | 강의 캐시를 시간표 파싱 결과(parsed+subject_groups)로 변환 / 단일 후보의 시간 충돌 검사. `summary=True`면 parsed 생략, `codes`/`subject_keys`/`category_prefixes`로 부분 조회 (SPR-76/SPR-87), `include_subject_groups=False`면 subject_groups 생략 (SPR-95) | `soongpt-timetable-composer` 내부에서 사용 |
 | 시간표 후보 | `load_timetable_candidates` / `save_timetable_candidate` / `clear_timetable_candidates` | 조합한 후보 로드/저장(같은 name replace, code 검증)/삭제 | `soongpt-timetable-composer` 내부에서 사용 |
 | 매핑 | `load_department_map` | 학과-단과대 매핑 (복수/부전공 단과대 자동 조회, 1년 캐시) | 스킬 내부 — 복수/부전공 처리 시 |
 | 프로필 | `get_user_profile` | 저장된 프로필 조회 | 직접 — "내 프로필 뭐야" |
