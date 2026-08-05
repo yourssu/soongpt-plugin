@@ -18,6 +18,7 @@ from soongpt_mcp.timetable_parsing import (
     ParsedLecture,
     build_subject_groups,
     coerce_conflict_lecture,
+    duplicate_slot_raws,
     extract_credits,
     find_conflicts,
     has_time_conflict,
@@ -155,6 +156,48 @@ def test_parse_failed_block_skipped() -> None:
     assert slots == []
 
 
+def test_parse_schedule_room_dedup_identical_slots() -> None:
+    """(요일+시작+종료) 동일 슬롯 중복 → 1개만 유지 (SPR-82).
+
+    러시아우트 원본이 같은 schedule_room 블록을 2회 주는 실제 케이스
+    (교선 AI시대의정보보안 2150057301 "화 09:00-10:15" 중복).
+    """
+    slots = parse_schedule_room(
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)\n"
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)"
+    )
+    assert len(slots) == 1
+    assert slots[0].days == ["화"]
+    assert slots[0].start_min == 9 * 60
+    assert slots[0].end_min == 10 * 60 + 15
+
+
+def test_parse_schedule_room_dedup_keeps_distinct_slots() -> None:
+    """중복과 별개 슬롯이 섞여 있어도 별개 슬롯은 보존."""
+    slots = parse_schedule_room(
+        "월 10:30-12:00 (베어드홀 01101-김자헌)\n"
+        "월 10:30-12:00 (베어드홀 01101-김자헌)\n"
+        "수 13:30-15:00 (베어드홀 01201-박은영)"
+    )
+    assert len(slots) == 2
+    assert [s.days[0] for s in slots] == ["월", "수"]
+
+
+def test_parse_schedule_room_dedup_first_when_room_differs() -> None:
+    """같은 시간 다른 강의실/교수여도 (요일+시작+종료) 동일하면 첫 항목 유지.
+
+    같은 시각에 두 강의실에 동시 존재할 수 없으므로 중복으로 간주해 제거한다
+    (SPR-82 dedup 키 = 요일+시작+종료).
+    """
+    slots = parse_schedule_room(
+        "화 09:00-10:15 (벤처중소기업센터 10309-장의진)\n"
+        "화 09:00-10:15 (벤처중소기업센터 99999-김다른)"
+    )
+    assert len(slots) == 1
+    assert slots[0].room == "벤처중소기업센터 10309"
+    assert slots[0].professor == "장의진"
+
+
 # ── extract_credits ────────────────────────────────────────────────────
 
 
@@ -287,6 +330,74 @@ def test_parse_lectures_dedup_by_code() -> None:
     )
     assert len(parsed) == 1
     assert parsed[0].name == "알고리즘"
+
+
+def test_parse_lectures_dedup_slots_keeps_ok_status() -> None:
+    """중복 슬롯 dedup: status는 ok 유지 + dedup 경고 + raw 원본 보존 (SPR-82).
+
+    모든 블록이 파싱됐는데 (요일+시작+종료) 중복만 있는 경우 uncertain으로
+    오판하면 안 된다 — 중복 제거는 데이터 품질 정리이지 파싱 실패가 아니다.
+    """
+    raw = (
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)\n"
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)"
+    )
+    parsed = parse_lectures(
+        [
+            _lecture(
+                code="2150057301",
+                name="AI시대의정보보안",
+                category="교선",
+                schedule_room=raw,
+            )
+        ]
+    )
+    p = parsed[0]
+    assert p.parse_status == "ok"
+    assert len(p.slots) == 1
+    assert p.slots[0].days == ["화"]
+    assert p.raw == raw  # 원본은 보존 (파싱 결과에서만 정리)
+    assert any("동일 슬롯 중복 1건 제거" in w for w in p.parse_warnings)
+
+
+def test_parse_lectures_dedup_does_not_mask_parse_failure() -> None:
+    """중복 dedup이 실제 파싱 실패를 가리면 안 된다 — 실패 블록 있으면 uncertain."""
+    raw = (
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)\n"
+        "화 09:00-10:15 (벤처중소기업센터 10309 (이도영강의실)-장의진)\n"
+        "온라인"
+    )
+    parsed = parse_lectures([_lecture(code="2150057301", schedule_room=raw)])
+    assert parsed[0].parse_status == "uncertain"
+    assert any("파싱 실패" in w for w in parsed[0].parse_warnings)
+
+
+def test_parse_lectures_dedup_multiple_removed() -> None:
+    """동일 슬롯 3회 → 1개 유지 + '2건 제거' 경고.
+
+    실측 케이스(민주주의와토론 2150107701: 6블록 중 동일 슬롯 중복쌍 2개)처럼
+    제거 건수 카운트가 올바른지 검증한다.
+    """
+    raw = "\n".join(["화 09:00-10:15 (벤처중소기업센터 10309-장의진)"] * 3)
+    parsed = parse_lectures(
+        [_lecture(code="2150107701", name="민주주의와토론", schedule_room=raw)]
+    )
+    p = parsed[0]
+    assert p.parse_status == "ok"
+    assert len(p.slots) == 1
+    assert any("동일 슬롯 중복 2건 제거" in w for w in p.parse_warnings)
+
+
+def test_duplicate_slot_raws_direct() -> None:
+    """공개 헬퍼 duplicate_slot_raws — 중복 슬롯의 raw 문자열 목록 반환."""
+    a = parse_lectures(
+        [_lecture(code="2150057301", schedule_room="화 09:00-10:15 (벤처중소기업센터 10309-장의진)")]
+    )[0]
+    assert duplicate_slot_raws(a) == []  # 정상 파싱(dedup 후)이면 빈 목록
+    a.slots.append(a.slots[0])  # 중복 슬롯 수동 추가 (구버전/수동 데이터 시뮬레이션)
+    dups = duplicate_slot_raws(a)
+    assert len(dups) == 1
+    assert "화 09:00-10:15" in dups[0]
 
 
 def test_parse_lectures_same_name_different_code_separate() -> None:
@@ -863,3 +974,26 @@ async def test_check_timetable_conflicts_mixed_minimal_and_full() -> None:
     assert result["has_blocking_conflict"] is True
     assert len(result["conflicts"]) == 1
     assert result["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_check_timetable_conflicts_duplicate_slot_warning() -> None:
+    """수동/구버전 데이터가 강의 내 중복 슬롯을 갖고 오면 warning으로 보고 (SPR-82).
+
+    파싱 dedup 후 정상 흐름에선 발생하지 않는 방어 가드 — 중복 슬롯을 가진
+    dict를 직접 만들면 동일 강의 내 중복이 warnings에 담겨야 한다.
+    """
+    a, b = parse_lectures(
+        [
+            _lecture(code="2150057301", name="AI시대의정보보안", schedule_room="화 09:00-10:15 (벤처중소기업센터 10309-장의진)"),
+            _lecture(code="2150164204", name="자료구조", schedule_room="화 10:30-12:00 (베어드홀 01201-박은영)"),
+        ]
+    )
+    # 파싱된 dict에 동일 슬롯을 수동으로 하나 더 추가 (구버전/수동 데이터 시뮬레이션)
+    a_dict = a.model_dump(mode="json")
+    a_dict["slots"].append(dict(a_dict["slots"][0]))
+
+    result = await server.check_timetable_conflicts([a_dict, b.model_dump(mode="json")])
+    assert result["has_blocking_conflict"] is False
+    assert result["conflicts"] == []
+    assert any("동일 슬롯 중복 1건" in w and "2150057301" in w for w in result["warnings"])

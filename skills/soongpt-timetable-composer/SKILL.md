@@ -26,12 +26,12 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 ### 2. 강의 캐시 확인
 
-- `load_lectures_cache(year, semester)` 호출
+- `load_lectures_cache(year, semester, include_lectures=False)` 호출 (SPR-76 — 캐시 히트 여부만 확인하면 되므로 그룹 메타만 받는다. 625KB 상세 응답을 방지)
 - `_cache.source`:
   - `"cache"`: 3번으로
   - `"stale"`: 사용자에게 새로고침 여부를 물어본다. 새로고침 → `soongpt-available-lectures` 위임 후 복귀. 아니면 stale 데이터로 계속
   - `"miss"`: `soongpt-available-lectures`로 위임 후 복귀
-- **`groups["chapel"]` 보존 (④ 채플 식별에 필수)**: 2번 응답의 `groups["chapel"].lectures[].code` 집합을 컨텍스트에 **버리지 말고 유지**. `parse_lectures_cache`는 `parsed`만 주고 groups를 주지 않으므로, ④ 공통 규칙의 "code ∈ groups[chapel]" 식별(소그룹채플 `category` 미실측 대비 회피 전략)은 이 2번 응답의 groups로만 가능하다.
+- **`groups["chapel"].codes` 보존 (④ 채플 식별에 필수)**: 2번 응답의 `groups["chapel"].codes` 집합을 컨텍스트에 **버리지 말고 유지**. `parse_lectures_cache`는 `parsed`만 주고 groups를 주지 않으므로, ④ 공통 규칙의 "code ∈ groups[chapel]" 식별(소그룹채플 `category` 미실측 대비 회피 전략)은 이 2번 응답의 groups로만 가능하다. (메타 모드의 groups에는 강의 상세가 없고 code 목록(`codes`)만 있다 — 채플 code 식별에는 충분하다.)
 
 ### 3. 데이터 원본 확보 (재개 mismatch 판정용 스냅샷)
 
@@ -40,7 +40,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 - `get_graduation_status()` 호출 — **부족 학점(카테고리별 difference)만** 참고 (아래 [미이수 필수](#미이수-필수-절차-명문화) 절차 참고)
 - 이 스킬이 나중에 저장할 `generation_params`에 쓸 기준값 두 개를 기억한다:
   - `interview_updated_at` = `get_interview()` 응답의 `interview.updated_at`
-  - `lectures_cached_at` = `load_lectures_cache()` 응답의 `_cache.cached_at`
+  - `lectures_cached_at` = 위 2번 `load_lectures_cache(year, semester, include_lectures=False)` 응답의 `_cache.cached_at`
 
 ## 파싱 (1회만)
 
@@ -54,6 +54,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 `parsed[i]`의 필드 중 LLM이 꼭 쓰는 것:
 - `code` / `name` / `subject_key`(code[:-2] 분반 그룹키) / `credits` / `slots`
 - `parse_status`: `"ok"` | `"uncertain"` | `"empty"` — **충돌 검사는 `ok`만** 대상
+- `parse_warnings`: 데이터 품질 경고 리스트. 특히 **`"동일 슬롯 중복 N건 제거"`** (SPR-82) — 러시아우트 원본이 같은 (요일+시작+종료) 블록을 2회 주는 경우 파싱 단계에서 dedup되어 `slots`엔 1개만 남고 이 경고로만 흔적이 남는다. 이 warning이 있는 강의는 사용자에게 알리고, Co-op(현장실습)처럼 의미 있는 중복이 의심되면 대화로 확인한다.
 - `category`: **이수구분** (2026-2 실강의 스캔 검증) — `"전기-<학부명>"`(전공기초), `"전필-<학부명>"`(전공필수), `"전선-<학부명>"`(전공선택), `"교필"`(교양필수, schedule_room 빈 문자열=온라인형), `"교선"`(교양선택), `"교직"`(교직 이론), `"교직전공-<학부명>"`(교직 전공과목), **`"채플"`(채플 — 교필과 별개 이수구분, 학점 0.5, schedule_room에 고정 시간)**. `division`(null/"공통-재수강"/"팀티칭" 라벨)은 못 쓰니 **반드시 category 기준**. 필수 안내 필터(`"전기-"`/`"전필-"`/`"교필"` prefix)는 `교직전공-`을 제외하며, **`"채플"`은 이 prefix에 해당하지 않아 ① 필수과목에서 자동 제외**된다 — 채플은 아래 **④ 채플** 소절에서만 처리한다 (과거 채플이 시간표에서 누락된 원인).
 - `sub_category`: rusaint 원본 Lecture의 **실존 필드** — 복수/융합전공 이수구분(예: `"복선-컴퓨터"`, `"복필-컴퓨터/융선-ICT유통물류융합"`). 값이 없으면 `None` — 복수/융합전공 판단에 보조로만 쓰고, 없으면 `category`만 사용한다
 - `target` (수강대상 자연어), `field` (학번 태그), `department`, `professor`
@@ -78,17 +79,26 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 1. **식별**: `parsed`(전기/전필/교필) ∩ `takenCourses` 코드 교차.
    - 수강이력(`takenCourses[].subjects[].code`)에 **코드가 없으면 "미이수 후보"** 로 안내한다.
    - 코드가 있으면 이미 이수한 것으로 보고 안내하지 않는다.
-2. **코드 불일치 폴백**: 코드가 안 맞아 교차가 안 되는 경우(커리큘럼 개편으로 과목코드가 바뀌었을 가능성), `subjectNames`(수강이력의 {코드: 강의명})에서 **이름으로** 매칭한다. 이때 **반드시 `department` 일치를 확인**한다 — 동명이지만 다른 학과 과목을 오탐하지 않게.
+2. **코드 불일치 폴백**: 코드가 안 맞아 교차가 안 되는 경우(커리큘럼 개편으로 과목코드가 바뀌었을 가능성), `subjectNames`(수강이력의 {코드: 강의명})에서 **이름으로** 매칭한다. 이때 **반드시 `department` 일치를 확인**한다 — 동명이지만 다른 학과 과목을 오탐하지 않게. **부분 매칭은 적용하지 않는다** — 부분 매칭 오탐 시 이미 이수한 과목을 "이미 이수"로 잘못 빼 필수 과목 후보에서 제외되는 역위험이 있어 정확 일치가 안전하다 (③ 재수강의 부분 매칭 폴백과 달리 이수 후보는 확인 단계가 없음).
 3. **한계 명시**: 이 절차는 "근사 안내"다. 커리큘럼 개편으로 코드가 바뀐 과목은 정확히 잡아내지 못할 수 있음을 사용자에게 알린다:
    > "미이수 필수는 수강이력과 이번 학기 개설 과목을 대조한 **근사 안내**야. 커리큘럼 개편으로 코드가 바뀌면 정확하지 않을 수 있어. 확정은 졸업사정표나 학사 안내로 확인해줘."
 
 ### ③ 재수강
 
-1. **식별**: `lowGradeSubjectCodes`(C/D/F 저성적) ∩ 개설 code.
-2. **코드 불일치 폴백**: 교차가 안 되면 `subjectNames` ↔ `parsed` 이름 매칭 (**department 일치 확인 필수**).
-3. **전체 분반 열거**: 재수강 대상으로 판단되면 해당 `subject_key`의 **전체 분반을 열거**한다 — 분반 1개만 제시하지 않는다. `subject_groups[subject_key]`로 모든 code를 찾아 시간/교수와 함께 보여준다.
-4. **미개설 안내**: 이름 매칭도 안 되면:
-   > "재수강 대상 과목이 이번 학기에 개설되지 않았거나 코드가 바뀌었을 수 있어. (과목명)"
+1. **식별**: `lowGradeSubjectCodes`(C/D/F 저성적) ∩ 개설 code. 코드가 교차되면 정확히 그 강의를 재수강 대상으로 삼는다.
+2. **코드 불일치 폴백 (과목명 개편 대응 — SPR-81)**: 코드 교차가 안 되면, 저성적 코드의 **수강 이력 과목명** `subjectNames[code]` ↔ `parsed` 이름 매칭으로 이어본다. (대체과목 추천 코드처럼 수강 이력이 없어 `subjectNames`에 없는 코드는 이름 매칭을 시도하지 않고 **4번 미개설 안내로 넘어간다**.) **이름 매칭은 반드시 `department` 일치를 확인**한다 — 동명이지만 다른 학과 과목을 오탐하지 않게. 단, `parsed[i].department`가 null/빈 교양(교필/교선) 과목은 department 일치 검사를 생략하고 이름 매칭만으로 판단한다 (2026-2 실측 기준 — 교양 department가 null로 오는 형태는 학기마다 다를 수 있음). 매칭은 아래 단계로 내려간다:
+   1. **정확 일치**: 과거명 == 개설명 문자열 전체 동일 → 재수강 대상으로 **확정**.
+   2. **부분 매칭(contains) 폴백 — 개편 추정**: 정확 일치가 없으면 **부분 매칭**을 시도한다. **비교 전 양쪽 이름에서 공백·괄호 표기(예: '(영강)', '(캡스톤)')를 제거(정규화)한 뒤 비교한다.** 과목명 개편으로 이름이 줄거나 바뀌는 케이스 대응 — 예: "운영체제및실습"↔"운영체제"(개설명이 과거명의 부분문자열), "선형대수"↔"선형대수학"·"전기회로"↔"전기회로이론"(개설명이 과거명을 포함하는 방향). 방향은 양쪽 다 검사한다 — 과거명이 개설명의 부분 문자열이거나 개설명이 과거명의 부분 문자열이든. **부분문자열은 의미 있는 길이(4자 이상 또는 원래 이름의 절반 이상)만 매칭 후보로 본다** — '기초'/'개론' 같은 2~3자 조각으로 오탐하지 않게. **부분 매칭은 오탐 위험이 있어 자동 확정하지 않는다**:
+      - `department` 일치 후보가 **하나**면 "개편으로 추정"으로 **사용자에게 확인**을 받고 재수강 대상으로 삼는다:
+        > "{과거명}({구코드})이 이번 학기 '{개설명}'({신코드}, {department})으로 개편된 것 같아. 재수강 대상으로 맞지?"
+      - `department` 일치 후보가 **여럿**(유사명)이면 임의로 고르지 말고 **전체를 나열**해 사용자가 고르게 한다.
+      - 확인받은 대상은 안내에 "**개편으로 추정**" 표기를 붙인다.
+3. **전체 분반 열거**: 재수강 대상으로 판단되면 해당 `subject_key`의 **전체 분반을 열거**한다 — 분반 1개만 제시하지 않는다. (부분 매칭으로 연결한 경우엔 **새 subject_key**의 분반 그룹을 쓴다.) `subject_groups[subject_key]`로 모든 code를 찾아 시간/교수와 함께 보여준다.
+4. **미개설 안내 (강화 — "미개설"로 단정하지 않는다)**: 정확/부분 매칭 모두 안 되면, "미개설"과 "과목명 변경"을 **둘 다** 안내하고 검증을 제안한다:
+   > "재수강 대상 과목({과목명})이 이번 학기에 보이지 않아. 미개설이거나 과목명이 바뀌었을 수 있어. 과목명 일부로 다시 조회해볼게."
+   - 캐시에 안 잡힌 신설·이름 변경 과목일 수 있으므로, **`find_lectures(category_type="find_by_lecture", keyword=과목명 일부)`** 로 직접 재검색을 제안한다. 검색으로 개편 후보를 찾으면 위 2-2의 확인 절차로 이어간다. (find_by_lecture는 캐시 저장을 제외하는 확인용 조회다.)
+   - find_by_lecture로 찾은 code를 후보에 넣으려면 **`save_timetable_candidate`의 code 검증이 강의 캐시 기준이라 캐시에 없는 code는 ValueError**가 난다 — 확정 전에 해당 과목을 `find_lectures`(정식 조회 — 캐시 저장됨)로 다시 가져와 캐시에 넣은 뒤 후보에 담는다.
+   - 그래도 없으면 미개설로 안내하되 **"학사 안내로 최종 확인"**을 함께 전한다. 졸업반 재수강은 재수강 시점을 놓치면 졸업이 걸릴 수 있으므로 **강조해서 안내**한다.
 
 ### ④ 채플
 
@@ -210,7 +220,7 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
     ```
     generation_params={
       "interview_updated_at": <get_interview().interview.updated_at>,
-      "lectures_cached_at": <load_lectures_cache()._cache.cached_at>
+      "lectures_cached_at": <load_lectures_cache(year, semester, include_lectures=False)._cache.cached_at>
     }
     ```
 - 같은 `name`으로 다시 저장하면 기존 후보가 **교체(replace)**된다 — 수정 반복 시 폐기 후보가 쌓이지 않는다. 반환의 `replaced`로 확인할 수 있다.
@@ -222,11 +232,11 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 "후보 이어서" 등으로 재진입하면:
 
-1. `get_interview(year, semester)` / `load_lectures_cache(year, semester)` / `load_timetable_candidates(year, semester)` 호출.
+1. `get_interview(year, semester)` / `load_lectures_cache(year, semester, include_lectures=False)` / `load_timetable_candidates(year, semester)` 호출.
 2. 후보가 없으면(`_cache.source == "miss"`) [진입 절차](#진입-절차-필수)부터 새로 시작.
 3. 후보가 있으면 **mismatch 판정**:
    - `generation_params.interview_updated_at` ≠ `get_interview().interview.updated_at`
-     **또는** `generation_params.lectures_cached_at` ≠ `load_lectures_cache()._cache.cached_at`
+     **또는** `generation_params.lectures_cached_at` ≠ `load_lectures_cache(year, semester, include_lectures=False)._cache.cached_at`
      → **mismatch** (키 부재는 `dict.get` 폴백 — 구버전 저장 데이터 대비)
    - 타임스탬프는 **ISO 문자열 그대로 비교하지 말고 datetime으로 파싱해 비교**한다 — Z/±오프셋/소수점 표기 차이로 생기는 오탐을 막는다.
    - **`get_interview()`가 null이면 mismatch로 간주** (인터뷰가 지워졌다는 것 자체가 변경 신호).
@@ -242,5 +252,5 @@ description: 숭실대 시간표 후보 조합 — 인터뷰 선호 + 강의 캐
 
 - 이 스킬은 도구로 계산하고 LLM으로 판단한다. 서브에이전트는 쓰지 않는다.
 - **④ 채플은 실제 학년(actual_grade)으로 분기**: `actual_grade==1` → 소그룹채플(자기 학과 분반 Base 기본 포함, 잔여 0 무시), `actual_grade>=2` → 비전채플(기존 SPR-57 로직 그대로). actual_grade 기반 fetch가 캐시 `chapel`에 한 종류만 담아 데이터 격리까지 보장한다. `profile.grade`는 PT-87 임시 보정(+1학기)이 섞인 값이므로 채플 분기·자기 대상 매칭에 쓰지 않는다 (SPR-71).
-- Co-op(현장실습) 중복 슬롯, 학점 0(사회봉사) 같은 특수 케이스는 도구가 판정하지 않으니 사용자와 대화로 확인한다.
+- 학점 0(사회봉사) 같은 특수 케이스는 도구가 판정하지 않으니 사용자와 대화로 확인한다. **동일 슬롯 중복은 파싱 dedup(SPR-82)으로 `slots`에서 제거**되고 `parse_warnings`의 "동일 슬롯 중복 N건 제거"로만 보이므로, 해당 warning이 있는 강의(특히 Co-op/현장실습)는 사용자와 확인한다.
 - 후보 캐시는 TTL이 없다 — `clear_timetable_candidates`로만 무효화된다.

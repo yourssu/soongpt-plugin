@@ -7,6 +7,7 @@ from soongpt_mcp.server import _run_with_session
 from soongpt_mcp.services.exceptions import (
     RusaintInternalError,
     SSOTokenError,
+    is_no_lecture_error,
     is_session_expiry_error,
 )
 from soongpt_mcp.session_manager import SessionError
@@ -198,3 +199,40 @@ def test_is_session_expiry_error_walks_context_chain() -> None:
     wrapped = RusaintInternalError("래핑된 메시지")
     wrapped.__context__ = context
     assert is_session_expiry_error(wrapped)
+
+
+def test_is_no_lecture_error_matches_marker() -> None:
+    assert is_no_lecture_error(RusaintInternalError("No lecture found"))
+    assert is_no_lecture_error(
+        RusaintInternalError("유세인트 강의시간표 조회 중 오류: RusaintError - No lecture found")
+    )
+
+
+def test_is_no_lecture_error_ignores_unrelated() -> None:
+    assert not is_no_lecture_error(
+        RusaintInternalError("Cannot find element from document")
+    )
+    assert not is_no_lecture_error(
+        RusaintInternalError("유세인트 연결 실패: Cannot find SSR Client form")
+    )
+    # 연계/융합전공의 정상적 실패("Cannot find ... option")는 미개설이 아니다 (SPR-79 회귀 방지).
+    assert not is_no_lecture_error(
+        RusaintInternalError("Cannot find ... option in .../CONNECT_MAJOR")
+    )
+    assert not is_no_lecture_error(RuntimeError("일반 오류"))
+
+
+def test_is_no_lecture_error_walks_cause_chain() -> None:
+    cause = RuntimeError("No lecture found")
+    wrapped = RusaintInternalError("래핑된 메시지")
+    wrapped.__cause__ = cause
+    assert is_no_lecture_error(wrapped)
+    assert not is_no_lecture_error(RuntimeError("원인이 없는 오류"))
+
+
+def test_is_no_lecture_error_walks_context_chain() -> None:
+    """`raise X from e` 없이 래핑된 경우(__context__만)에도 탐지."""
+    context = RuntimeError("No lecture found")
+    wrapped = RusaintInternalError("래핑된 메시지")
+    wrapped.__context__ = context
+    assert is_no_lecture_error(wrapped)

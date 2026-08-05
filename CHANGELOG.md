@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 대용량 MCP 도구 소형 응답 옵션 — `find_lectures(summary=True)`, `load_lectures_cache(include_lectures=False)`(그룹 메타·codes), `parse_lectures_cache(summary=True)`. 기본값은 기존 동작 유지. 통합 조회·캐시 확인이 컨텍스트를 크게 아낌 (SPR-76) (#44)
+
 ## [1.1.0] - 2026-08-05
 
 강의 fetch→캐시 파이프라인을 서버 측 자동 저장으로 개선하고, 채플 라우팅을 실제 학년 기준으로 수정.

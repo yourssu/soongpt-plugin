@@ -30,11 +30,12 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 ### 2. 캐시 확인
 
-- `load_lectures_cache(year, semester)` 호출 (year/semester는 현재 학기 — 1~7월="1", 8~12월="2")
+- `load_lectures_cache(year, semester, include_lectures=False)` 호출 (year/semester는 현재 학기 — 1~7월="1", 8~12월="2")
 - 응답의 `_cache.source`:
   - `"cache"`: 캐시 히트. **5번(다음 단계 안내)으로 바로 이동**
   - `"stale"`: 7일 경과. 3번으로 (사용자에게 "새로고침?" 물어볼지, 그냥 stale라도 쓸지 선택)
   - `"miss"`: 파일 없음. 3번으로
+- `include_lectures=False` (SPR-76): 이 호출은 캐시 히트 여부만 확인하면 되므로 그룹 메타(카테고리·count·error·codes)만 받는다. 상세 강의는 3번 fetch가 서버에 저장하고, 3-D/4번에서 같은 메타 모드로 재확인한다.
 
 사용자가 트리거에서 "새로" / "갱신" 뉘앙스를 포함했으면 source와 무관하게 3번으로.
 
@@ -56,8 +57,8 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 - **취합 → save_lectures_cache 호출이 없다.** `save_lectures_cache` 도구는 제거됨. fetch가 끝나면 그 그룹은 이미 캐시에 들어 있다.
 - **그룹 키도 서버가 자동 생성**한다 (아래 각 카테고리의 `groups["..."]` 표기는 자동 생성될 키 안내 — 스킬이 직접 키를 정하지 않는다).
-- **응답의 lectures 상세는 컨텍스트에 유지하지 않는다.** 이미 캐시에 저장됐으므로 `count`와 `_cache`(group_key/saved)만 보고 다음 fetch로 넘어간다. 특히 교양선택 "전체"(약 337강의) 응답은 **절대 요약/재조립하거나 save로 다시 넘기지 않는다** — 대화에는 `count` 수준만 남긴다.
-- **실패 카테고리는 예외가 그대로 온다** (연계/융합처럼 한쪽 실패가 정상인 경우 포함). 예외 후에는 `load_lectures_cache`로 해당 그룹의 `error` 필드를 확인해 재조회 여부를 판단한다. (기존 성공 그룹이 있으면 error 그룹으로 대체되지 않으니 데이터는 보존된다. `_cache.saved=False`는 "확인용 조회라 저장을 건너뜀"의 경우다.)
+- **모든 fetch는 `summary=True`를 붙인다** (SPR-76). 서버가 응답에서 lectures 상세를 생략하고 `count`/`fetchTime`/`_cache`(group_key/saved)만 반환한다 — 컨텍스트를 크게 아낀다. 결과는 이미 캐시에 저장되므로 상세가 필요하면 `load_lectures_cache(year, semester)`(기본 상세)로 재조회하면 된다. 특히 교양선택 "전체"(약 337강의)는 요약 모드 없이는 응답이 ~220KB에 달하므로 반드시 `summary=True`다.
+- **실패 카테고리는 예외가 그대로 온다** (연계/융합처럼 한쪽 실패가 정상인 경우 포함). 예외 후에는 `load_lectures_cache(year, semester, include_lectures=False)`로 해당 그룹의 `error` 필드를 확인해 재조회 여부를 판단한다. (기존 성공 그룹이 있으면 error 그룹으로 대체되지 않으니 데이터는 보존된다. `_cache.saved=False`는 "확인용 조회라 저장을 건너뜀"의 경우다.)
 - **확인용 조회는 저장 제외**: `find_by_lecture`/`find_by_professor`/`include_details=True`는 `save_to_cache=False`를 주거나 (사실 서버가 강제로 저장을 건너뜀) 그냥 두면 된다.
 
 #### 3-A. 전공 계열 (2~6회 병렬)
@@ -66,7 +67,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   ```
   find_lectures(year, semester, category_type="major",
                 collage=profile.college, department=profile.department,
-                major=None)
+                major=None, summary=True)
   ```
   → 서버가 `groups["major_<collage>_<department>"]` 키로 자동 저장 (예: `major_IT대학_컴퓨터학부`)
 
@@ -74,7 +75,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   ```
   find_lectures(year, semester, category_type="recognized_other_major",
                 collage=profile.college, department=profile.department,
-                major=None)
+                major=None, summary=True)
   ```
   → 서버가 `groups["recognized_other_major_<collage>_<department>"]` 키로 자동 저장
 
@@ -82,7 +83,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   ```
   find_lectures(year, semester, category_type="major",
                 collage=<복수전공 단과대>, department=profile.double_major,
-                major=None)
+                major=None, summary=True)
   ```
   → 서버가 `groups["major_<복수전공 단과대>_<double_major>"]` 키로 자동 저장
   - **단과대 획득**: `profile`에 복수/부전공 단과대 필드가 없으므로 `load_department_map(year)` 매핑 `{학과명: 단과대}`에서 역조회. `mapping[profile.double_major]`로 단과대 획득
@@ -94,7 +95,7 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
     ```
     find_lectures(year, semester, category_type="major",
                   collage=<부전공 단과대>, department=profile.minor,
-                  major=None)
+                  major=None, summary=True)
     ```
   → 서버가 `groups["major_<부전공 단과대>_<minor>"]` 키로 자동 저장
 
@@ -102,9 +103,9 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
   - rusaint 0.16.3은 **연계전공(`connected_major`)과 융합전공(`united_major`)을 별도 분류**로 제공. USAINT는 프로필 `connected_major`에 연계/융합을 통합 추출하므로 런타임에 어느 쪽인지 알 수 없음 → **양쪽 모두 시도**
   ```
   find_lectures(year, semester, category_type="connected_major",
-                major=profile.connected_major)
+                major=profile.connected_major, summary=True)
   find_lectures(year, semester, category_type="united_major",
-                major=profile.connected_major)
+                major=profile.connected_major, summary=True)
   ```
   → 각각 `groups["connected_major"]`, `groups["united_major"]` 키로 자동 저장
   - **일반적으로 한쪽이 실패**: 사용자 이수가 연계면 보통 `united_major`가, 융합이면 `connected_major`가 USAINT WebDynpro 예외(`Cannot find ... option in ...CONNECT_MAJO/UNMA...`)를 던짐. 빈 배열이 아니라 **예외**이며 서버가 캐시에 error 그룹으로 기록하고 예외를 그대로 올린다(정상 무시). 정상 한쪽은 강의 배열을 반환. **두 쪽 모두 성공(예: 과목이 양쪽에 걸쳐 개설)하면 둘 다 저장**
@@ -116,24 +117,26 @@ description: 숭실대 이번 학기 들을 수 있는 과목 통합 조회. 주
 
 교양선택은 학번별 분야로 쪼개 N회 부르지 않고 **"전체" 1회 호출**로 끝낸다. 실측
 결과 한 강의의 `field`에 전 학번 분야가 줄바꿈(`\n`)으로 몰아있어, 어차피 같은 강의가
-여러 분야에 중복 속한다. 분야별 분산 호출(5~25회)보다 "전체" 1회가 더 완전·빠르다
-(fetchTime ~1.4초, 약 337강의 + 전 학번 분야 태그). **학번 분야 판별은 downstream
-(composer)으로 이동** — fetch 단계에서는 학번 필터링을 하지 않는다. 1회 호출이라
-3-0 묶음 규칙 대상이 아니다.
+여러 분야에 중복 속한다. 분야별 분산 호출(5~25회)보다 "전체" 1회가 더 완전하고 호출
+수가 압도적으로 적어(1 vs 5~25) 총 소요 시간·실패 위험 면에서 유리하다 — 다만 1회
+호출 자체가 가볍다는 뜻은 아니다. **fetchTime은 학기·시간대에 따라 수초~30초대로 크게
+변동**한다 (2026-2학기 실측 16.7초, 이전 측정엔 30초대 기록; 약 337강의 + 전 학번
+분야 태그 반환). **학번 분야 판별은 downstream (composer)으로 이동** — fetch 단계
+에서는 학번 필터링을 하지 않는다. 1회 호출이라 3-0 묶음 규칙 대상이 아니다.
 
 ```
 find_lectures(year, semester, category_type="optional_elective",
-              category="전체")
+              category="전체", summary=True)
 ```
 → 서버가 `groups["optional_elective_all"]` 키로 자동 저장 (단일 그룹)
 
 - `list_optional_elective_categories`는 이 흐름에서 **호출하지 않는다** (도구 자체는
   분야 목록 안내용으로 보존). 학번 분야 매칭은 composer가 `field_tags`(`field`를
   줄바꿈으로 분해한 태그 줄 리스트)와 `profile.entered_year`로 처리한다.
-- **이 응답은 컨텍스트에 두지 않는다** (약 219KB/337강의). 서버가 이미 캐시에
-  저장했으므로 `count`와 `_cache`만 확인하고 상세는 버린다. 컨텍스트 절약은
-  composer가 `parse_lectures_cache` 결과를 학번 매칭으로 추려 올리는 방식으로
-  처리(→ composer 스킬).
+- **이 응답은 요약 모드(`summary=True`)로 받는다** (약 337강의 — 상세 응답은
+  220KB). 서버가 lectures를 생략하고 `count`/`_cache`만 반환하므로 컨텍스트를
+  아끼고, 상세는 캐시에 저장된 상태로 composer가 `parse_lectures_cache` 결과를
+  학번 매칭으로 추려 올리는 방식으로 처리(→ composer 스킬).
 
 ##### 3-B-2. 교양필수 전체 과목명 (필수)
 
@@ -144,7 +147,7 @@ find_lectures(year, semester, category_type="optional_elective",
 2. 반환된 **모든 과목명** 각각에 대해 `find_lectures` 병렬 호출 (약 4개씩 묶음 — 3-0 묶음 규칙, 이 단계가 호출 수가 가장 많음):
    ```
    find_lectures(year, semester, category_type="required_elective",
-                 lecture_name="<과목명>")
+                 lecture_name="<과목명>", summary=True)
    ```
    → 서버가 `groups["required_elective_<과목명>"]` 키로 자동 저장
    - optional_elective의 `[‘NN이후]` 학번 태그와 달리 교양필수 과목명은 **연도 태그가 없으므로 입학연도 필터링 없이 전부** 조회
@@ -159,12 +162,12 @@ find_lectures(year, semester, category_type="optional_elective",
     - `actual_grade == 1` (폴백 시 `profile.grade == 1`):
       ```
       find_lectures(year, semester, category_type="chapel",
-                    lecture_name="소그룹채플")
+                    lecture_name="소그룹채플", summary=True)
       ```
     - `actual_grade >= 2` **또는 actual_grade/grade 불명·None 폴백**:
       ```
       find_lectures(year, semester, category_type="chapel",
-                    lecture_name="비전채플")
+                    lecture_name="비전채플", summary=True)
       ```
   → 서버가 `groups["chapel"]` 키로 자동 저장 (단일 그룹 — 호출한 한 종류만 담김)
   - **왜 actual_grade인가**: `profile.grade`는 PT-87 임시 보정(+1학기)이 들어가 1학년 2학기 학생이 grade=2로 올라 비전채플로 오라우팅될 수 있다 (SPR-71). 채플은 1학년 전체(1학기/2학기 절반씩)가 소그룹채플이므로 **보정 전 실제 학년**으로 분기한다.
@@ -174,13 +177,13 @@ find_lectures(year, semester, category_type="optional_elective",
 
 - **숭실사이버대** (필수 1회):
   ```
-  find_lectures(year, semester, category_type="cyber")
+  find_lectures(year, semester, category_type="cyber", summary=True)
   ```
   → 서버가 `groups["cyber"]` 키로 자동 저장
 
 - **교직** (`profile.teaching_certification == True`일 때만):
   ```
-  find_lectures(year, semester, category_type="education")
+  find_lectures(year, semester, category_type="education", summary=True)
   ```
   → 서버가 `groups["education"]` 키로 자동 저장
   - `teaching_certification`이 `False`/`None`이면 이 블록 생략
@@ -188,7 +191,8 @@ find_lectures(year, semester, category_type="optional_elective",
 #### 3-D. 자동 저장 확인 + 실패 재조회
 
 fetch가 끝나면 각 그룹은 **이미 서버가 캐시에 저장**했다. 별도 취합/save 없이
-`load_lectures_cache(year, semester)`로 아래처럼 저장된 그룹 키와 error를 확인한다:
+`load_lectures_cache(year, semester, include_lectures=False)`로 아래처럼 저장된
+그룹 키·count·error를 확인한다 (메타 모드 — 그룹별 codes 포함):
 
 - **자동 생성되는 그룹 키 규칙** (서버가 생성 — 스킬은 이 키를 기대만 하면 된다):
   - `major_<collage>_<department>` — 주전공/복수전공/부전공 각각
@@ -204,9 +208,11 @@ fetch가 끝나면 각 그룹은 **이미 서버가 캐시에 저장**했다. �
 
 ### 4. 결과 요약 출력
 
-`load_lectures_cache(year, semester)`로 저장된 groups를 확인하고 사용자에게:
-- 총 강의 수 (모든 groups의 count 합)
-- 카테고리별 count (예: "주전공 45건, 타전공인정 12건, 교양선택 337건(전 학번 분야 포함), 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
+`load_lectures_cache(year, semester, include_lectures=False)`로 저장된 groups 메타를
+확인하고 사용자에게:
+- 총 강의 수 = 응답의 **`total_lectures`** 필드 (모든 groups의 count 합). 응답의 최상위
+  `count`는 **그룹 수**(len(groups))이므로 총 강의 수와 혼동하지 않는다 (SPR-78).
+- 카테고리별 count = 각 그룹의 `count` (예: "주전공 45건, 타전공인정 12건, 교양선택 337건(전 학번 분야 포함), 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
 - `error`가 있는 실패 카테고리 있으면 표시 (연계/융합 정상 실패 한쪽 포함)
 
 ### 5. 다음 단계 안내
