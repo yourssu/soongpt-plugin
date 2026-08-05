@@ -932,6 +932,66 @@ def test_filter_parsed_by_entered_year_pure() -> None:
     assert [p.field_tags for p in parsed] == before
 
 
+def test_filter_parsed_by_entered_year_mixed_non_tag_lines() -> None:
+    """비학번 태그 줄("기독교과목" 등)이 섞인 항목 — 학번 태그는 매칭만, 비학번 태그는 유지 (SPR-104).
+
+    전 학번 태그 5줄 + "기독교과목" 1줄: 매칭 학번 줄 + 비학번 줄만 남는다
+    (6줄 → 2줄). 매칭 학번 줄이 없어도 비학번 줄이 있으면(전 학번 개방 가능성)
+    판정 불가로 보수 유지된다 — field_tags는 비학번 줄만 남는다.
+    """
+    parsed = parse_lectures(
+        [
+            _lecture(
+                code="3161011001",
+                name="한류와대중문화",
+                category="교선",
+                field=(
+                    "['23이후]문화·예술\n"
+                    "['20,'21~'22]의사소통/글로벌\n"
+                    "['19]기초역량\n"
+                    "['16-'18]기초역량\n"
+                    "['15이전]창의\n"
+                    "기독교과목"
+                ),
+            ),
+            _lecture(
+                code="3161011002",
+                name="신학번+기독교",
+                category="교선",
+                field="['23이후]과학·기술\n기독교과목",
+            ),
+            _lecture(
+                code="3161011003",
+                name="기독교과목만",
+                category="교선",
+                field="기독교과목",
+            ),
+        ]
+    )
+    # 2023: 매칭 학번 줄 + 비학번 태그 줄 유지
+    out = filter_parsed_by_entered_year(parsed, 2023)
+    by_code = {p.code: p for p in out}
+    assert by_code["3161011001"].field_tags == [
+        "['23이후]문화·예술",
+        "기독교과목",
+    ]
+    assert by_code["3161011002"].field_tags == [
+        "['23이후]과학·기술",
+        "기독교과목",
+    ]
+    # 학번 태그 없는 강의는 원본 그대로
+    assert by_code["3161011003"].field_tags == ["기독교과목"]
+    # 2020: 다른 매칭 줄 + 비학번 태그 줄 유지
+    out20 = filter_parsed_by_entered_year(parsed, 2020)
+    by_code20 = {p.code: p for p in out20}
+    assert by_code20["3161011001"].field_tags == [
+        "['20,'21~'22]의사소통/글로벌",
+        "기독교과목",
+    ]
+    # 2020은 '23이후 미개설 — 비학번 줄만 남아 보수 유지 (판정 불가)
+    assert by_code20["3161011002"].field_tags == ["기독교과목"]
+
+
 # ── server 도구: parse_lectures_cache / check_timetable_conflicts ──────
 
 
