@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "soongpt-mcp"
-version = "1.2.6"
+version = "1.2.7"
 description = "MCP server + skills for Soongsil University uSaint data via rusaint: course search, timetable planning, graduation requirements"
 requires-python = ">=3.10"
 readme = "README.md"
