@@ -27,9 +27,9 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 _WEEKDAY_ORDER = ("월", "화", "수", "목", "금", "토", "일")
 
@@ -316,6 +316,104 @@ def build_subject_groups(parsed: list[ParsedLecture]) -> dict[str, list[str]]:
     for lecture in parsed:
         groups.setdefault(lecture.subject_key, []).append(lecture.code)
     return groups
+
+
+def coerce_conflict_lecture(data: dict[str, Any]) -> ParsedLecture:
+    """충돌 검사 입력을 ParsedLecture로 완화 변환 (check_timetable_conflicts용).
+
+    parse_lectures_cache의 전체 parsed dict는 엄격 검증으로 그대로 통과시킨다
+    (하위 호환). LLM이 최소 필드(code/name/credits/slots/parse_status)만 넘겨도
+    동작하도록, 누락 가능한 선택 필드는 다음 기본값으로 채운다:
+
+      - subject_key: code[:-2] (parse_lectures와 동일 규칙 — 분반 중복 판정용)
+      - parse_status: 기본 "ok", 단 slots=[]면 "empty" (빈 강의는 충돌 검사 제외)
+      - parse_warnings / raw: [] / None (충돌 검사 로직에서 미사용)
+      - slots[].room / professor: None (충돌 검사 로직에서 미사용)
+      - slots[].raw: "월 10:30-12:00" 형태로 재구성 (충돌 메시지 표시용)
+
+    주의: 이 lax 경로는 충돌 검사 전용이다. pass-through 필드(target/field/
+    professor/division/department/category/sub_category/field_tags)는 기본값으로
+    유실된다 — 충돌 검사 결과를 후속 조합 입력에 재사용하지 말 것. 전체 parsed
+    dict를 넘기면 모든 필드가 그대로 보존된다.
+
+    code/slots 누락 시 ValueError, 타입 오류 시 TypeError, 잘못된 parse_status
+    시 ValueError를 던진다 (조용한 "충돌 없음" 오판 방지).
+    """
+    try:
+        return ParsedLecture.model_validate(data)
+    except ValidationError:
+        pass
+
+    if not isinstance(data, dict):
+        raise TypeError(f"강의 항목은 dict여야 합니다: {data!r}")
+    code = str(data.get("code") or "")
+    if not code:
+        raise ValueError("강의 항목에 code가 필요합니다")
+
+    slots_data = data.get("slots")
+    if slots_data is None:
+        raise ValueError(f"code {code}: 충돌 검사에 slots가 필요합니다")
+    if not isinstance(slots_data, list):
+        raise TypeError(f"code {code}: slots는 list여야 합니다")
+
+    slots: list[TimeSlot] = []
+    for slot in slots_data:
+        if not isinstance(slot, dict):
+            raise TypeError(f"code {code}: 각 slot은 dict여야 합니다: {slot!r}")
+        days_raw = slot.get("days")
+        if not isinstance(days_raw, list) or not days_raw:
+            raise ValueError(f"code {code}: 각 slot에 days(요일 list)가 필요합니다")
+        if slot.get("start_min") is None or slot.get("end_min") is None:
+            raise ValueError(f"code {code}: 각 slot에 start_min/end_min이 필요합니다")
+        days = [str(d) for d in days_raw]
+        start_min = int(slot["start_min"])
+        end_min = int(slot["end_min"])
+        raw = slot.get("raw")
+        if not raw:
+            raw = f"{''.join(days)} {_format_minutes(start_min)}-{_format_minutes(end_min)}"
+        slots.append(
+            TimeSlot(
+                days=days,
+                start_min=start_min,
+                end_min=end_min,
+                room=slot.get("room"),
+                professor=slot.get("professor"),
+                raw=str(raw),
+            )
+        )
+
+    subject_key = data.get("subject_key")
+    if not subject_key:
+        subject_key = code[:-2]  # parse_lectures와 동일 규칙 (길이 무관 code[:-2])
+
+    valid_statuses = get_args(ParseStatus)
+    explicit_status = data.get("parse_status")
+    if explicit_status is not None and explicit_status not in valid_statuses:
+        raise ValueError(
+            f"code {code}: parse_status는 {'/'.join(valid_statuses)} 중 "
+            f"하나여야 합니다 (전달: {explicit_status!r})"
+        )
+    parse_status: ParseStatus = (
+        explicit_status
+        if explicit_status is not None
+        else ("empty" if not slots else "ok")
+    )
+
+    try:
+        return ParsedLecture(
+            code=code,
+            name=data.get("name"),
+            subject_key=subject_key,
+            credits=data.get("credits"),
+            slots=slots,
+            parse_status=parse_status,
+            parse_warnings=data.get("parse_warnings", []),
+            raw=data.get("raw"),
+        )
+    except ValidationError as exc:
+        raise ValueError(
+            f"code {code}: 잘못된 강의 dict입니다 (name/credits 등 타입 확인): {exc}"
+        ) from exc
 
 
 def _slots_overlap(sa: TimeSlot, sb: TimeSlot) -> bool:
