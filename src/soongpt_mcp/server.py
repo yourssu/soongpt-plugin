@@ -678,7 +678,10 @@ async def load_lectures_cache(
     키를 아예 빼고 ``count``/``total_lectures`` 스칼라만 남긴다 — codes 부분 모드처럼
     lectures 상세만 필요하고 그룹 메타가 불필요한 호출(시각화 등)에서 전체 그룹
     메타(~30-40KB) 컨텍스트 낭비를 없앤다. ``include_lectures``와 무관하게 동작하며
-    기본값(True)은 기존 응답 스키마를 유지한다 (하위 호환).
+    기본값(True)은 기존 응답 스키마를 유지한다 (하위 호환). **주의: ``codes`` 없이
+    ``include_groups=False``만 주면 (``include_lectures=True``여도) groups도 lectures도
+    없는 스칼라 요약만 반환된다** — lecture 상세가 필요하면 반드시 ``codes=[...]``와
+    함께 쓴다.
 
     학기(semester): "1" | "2" | "summer" | "winter"
 
