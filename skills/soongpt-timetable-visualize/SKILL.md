@@ -19,7 +19,7 @@ description: 조립 중/완성된 시간표를 브라우저에서 한 눈에 보
 
 - 이 스킬의 입력은 **`find_lectures` 반환과 동일한 lecture dict 목록**이다.
 - 시간표 조립 파일 형식(SPR-52)은 아직 미정이므로 **임의로 새 형식을 정의하지 않는다**. SPR-52 형식이 확정되면 이 입력만 그에 맞게 조정한다.
-- 표시할 후보는 대화 맥락에 이미 있는 강의 데이터(`find_lectures`/`load_lectures_cache` 결과 중 사용자가 선택/확정한 lecture dict)를 그대로 모아서 사용한다. 단, **builder·composer는 `load_lectures_cache(include_lectures=False)` 메타 모드로 호출하므로**(SPR-76) 대화 맥락에는 lecture dict이 없다 — 렌더링 전에 `load_lectures_cache(year, semester)`(기본 상세)를 호출해 확보해야 한다.
+- 표시할 후보는 대화 맥락에 이미 있는 강의 데이터(`find_lectures`/`load_lectures_cache` 결과 중 사용자가 선택/확정한 lecture dict)를 그대로 모아서 사용한다. 단, **builder·composer는 `load_lectures_cache(include_lectures=False)` 메타 모드로 호출하므로**(SPR-76) 대화 맥락에는 lecture dict이 없다 — 렌더링 전에 `load_lectures_cache(year, semester, codes=<후보 lecture_codes>)`(SPR-88)로 **해당 강의 상세만** 확보해야 한다. 전체 상세(`load_lectures_cache(year, semester)` 기본값)는 673KB로 파일 스필을 일으키므로 쓰지 않는다.
 
 ### lecture dict 스키마
 
@@ -64,7 +64,7 @@ description: 조립 중/완성된 시간표를 브라우저에서 한 눈에 보
 
 - 대화 맥락에서 사용자가 조립 중/확정한 시간표의 lecture dict 목록을 수집한다.
 - 맥락에 후보가 없거나 어느 과목을 보여줄지 모호하면 **사용자에게 직접 확인**한다 ("어떤 과목들 보여줄까?").
-- 필요한 원본 데이터(예: 강의 캐시)가 아직 없으면 `load_lectures_cache(year, semester)`(기본 상세 — include_lectures=True)로 먼저 확보한 뒤 그 lecture dict 중 선택받은 항목을 사용한다.
+- 필요한 원본 데이터(예: 강의 캐시)가 아직 없으면 **표시할 후보의 code 목록**으로 `load_lectures_cache(year, semester, codes=<lecture_codes>)`(SPR-88)를 호출해 해당 강의 상세만 확보한다. code 목록은 `load_timetable_candidates`의 `lecture_codes`(저장된 확정/조립 후보) 또는 대화 맥락에서 얻는다. 응답의 `lectures`(매칭 lecture dict 배열)를 입력 JSON에 그대로 쓴다. **`load_lectures_cache(year, semester)` 전체 상세는 쓰지 않는다** — 673KB로 컨텍스트를 초과해 파일 스필이 난다 (SPR-88).
 
 ### 2. 입력 JSON 파일 작성
 
