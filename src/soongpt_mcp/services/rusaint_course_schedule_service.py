@@ -76,7 +76,7 @@ class RusaintCourseScheduleService:
         - find_by_professor / find_by_lecture: keyword 필수
         - education / cyber: 추가 파라미터 없음
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         if category_type not in CATEGORY_TYPES:
             raise ValueError(
@@ -109,16 +109,16 @@ class RusaintCourseScheduleService:
         sessions: list[tuple[str, rusaint.USaintSession | None]] = []
 
         try:
-            session_start = time.time()
+            session_start = time.monotonic()
             session_obj = await session_module.create_session_from_json(session_json)
             sessions = [("course_schedule", session_obj)]
-            logger.info(f"세션 복원 완료: {time.time() - session_start:.2f}초")
+            logger.info(f"세션 복원 완료: {time.monotonic() - session_start:.2f}초")
 
-            app_start = time.time()
+            app_start = time.monotonic()
             app = await session_module.get_course_schedule_app(session_obj)
-            logger.info(f"Application 생성 완료: {time.time() - app_start:.2f}초")
+            logger.info(f"Application 생성 완료: {time.monotonic() - app_start:.2f}초")
 
-            data_start = time.time()
+            data_start = time.monotonic()
             if include_details:
                 detailed = await app.find_detailed_lectures(
                     year, semester_enum, lecture_category, True
@@ -129,9 +129,9 @@ class RusaintCourseScheduleService:
                     year, semester_enum, lecture_category
                 )
                 lectures = [self._dump_lecture(item) for item in raw_lectures]
-            logger.info(f"데이터 조회 완료: {time.time() - data_start:.2f}초")
+            logger.info(f"데이터 조회 완료: {time.monotonic() - data_start:.2f}초")
 
-            total_time = time.time() - start_time
+            total_time = time.monotonic() - start_time
             logger.info(
                 "유세인트 강의시간표 조회 완료: %d건 (총 %.2f초)",
                 len(lectures), total_time,
@@ -172,7 +172,7 @@ class RusaintCourseScheduleService:
                 return {
                     "lectures": [],
                     "count": 0,
-                    "fetchTime": f"{time.time() - start_time:.2f}s",
+                    "fetchTime": f"{time.monotonic() - start_time:.2f}s",
                     "includeDetails": include_details,
                 }
             logger.error(
@@ -205,7 +205,7 @@ class RusaintCourseScheduleService:
         단과대마다 _run_with_session을 타면 세션 복원 비용이 N배 발생하므로,
         빌드는 단일 세션 컨텍스트에서 collages() + 모든 departments()를 묶어 수행.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         semester_enum = SEMESTER_MAP.get(semester.lower())
         if semester_enum is None:
@@ -228,7 +228,7 @@ class RusaintCourseScheduleService:
             logger.info(
                 "단과대 %d개 조회 완료 (%.2f초)",
                 len(collages),
-                time.time() - start_time,
+                time.monotonic() - start_time,
             )
 
             mapping: dict[str, str] = {}
@@ -239,7 +239,7 @@ class RusaintCourseScheduleService:
                 for dept in departments:
                     mapping[dept] = collage
 
-            total = time.time() - start_time
+            total = time.monotonic() - start_time
             logger.info(
                 "학과-단과대 매핑 빌드 완료: 학과 %d개 / 단과대 %d개 (%.2f초)",
                 len(mapping),
@@ -336,7 +336,7 @@ class RusaintCourseScheduleService:
         label: str,
     ) -> list[str]:
         """세션 복원 → CourseScheduleApplication 생성 → 단일 목록 호출 공통 흐름."""
-        start_time = time.time()
+        start_time = time.monotonic()
 
         semester_enum = SEMESTER_MAP.get(semester.lower())
         if semester_enum is None:
@@ -353,7 +353,7 @@ class RusaintCourseScheduleService:
             sessions = [("course_schedule", session_obj)]
             app = await session_module.get_course_schedule_app(session_obj)
             result = await call(app, year, semester_enum)
-            total = time.time() - start_time
+            total = time.monotonic() - start_time
             logger.info("유세인트 %s 조회 완료: %d건 (%.2f초)", label, len(result), total)
             return result
 
@@ -452,7 +452,7 @@ class RusaintCourseScheduleService:
         → {result_key: [str], count, fetchTime}. 교양선택(optional_elective_categories)과
         교양필수(required_electives)가 세션/에러 처리/응답 형태를 공유하므로 하나로 묶는다.
         """
-        start_time = time.time()
+        start_time = time.monotonic()
 
         semester_enum = SEMESTER_MAP.get(semester.lower())
         if semester_enum is None:
@@ -469,20 +469,20 @@ class RusaintCourseScheduleService:
         sessions: list[tuple[str, rusaint.USaintSession | None]] = []
 
         try:
-            session_start = time.time()
+            session_start = time.monotonic()
             session_obj = await session_module.create_session_from_json(session_json)
             sessions = [(session_label, session_obj)]
-            logger.info(f"세션 복원 완료: {time.time() - session_start:.2f}초")
+            logger.info(f"세션 복원 완료: {time.monotonic() - session_start:.2f}초")
 
-            app_start = time.time()
+            app_start = time.monotonic()
             app = await session_module.get_course_schedule_app(session_obj)
-            logger.info(f"Application 생성 완료: {time.time() - app_start:.2f}초")
+            logger.info(f"Application 생성 완료: {time.monotonic() - app_start:.2f}초")
 
-            data_start = time.time()
+            data_start = time.monotonic()
             names = await getattr(app, app_method)(year, semester_enum)
-            logger.info(f"데이터 조회 완료: {time.time() - data_start:.2f}초")
+            logger.info(f"데이터 조회 완료: {time.monotonic() - data_start:.2f}초")
 
-            total_time = time.time() - start_time
+            total_time = time.monotonic() - start_time
             logger.info(
                 "유세인트 %s 조회 완료: %d건 (총 %.2f초)",
                 label, len(names), total_time,
