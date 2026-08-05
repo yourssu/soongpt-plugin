@@ -638,6 +638,7 @@ async def test_parse_lectures_cache_partial_codes() -> None:
         "codes": ["CS10101"],
         "subject_keys": None,
         "category_prefixes": None,
+        "entered_year": None,
     }
     # 필터로 parsed에 없는 분반도 subject_groups 인덱스에는 남는다
     assert resp["subject_groups"]["21500785"] == ["2150078501", "2150078502"]
@@ -656,6 +657,7 @@ async def test_parse_lectures_cache_no_filter_backward_compat() -> None:
         "codes": None,
         "subject_keys": None,
         "category_prefixes": None,
+        "entered_year": None,
     }
 
 
@@ -686,3 +688,163 @@ async def test_parse_lectures_cache_partial_miss() -> None:
     assert resp["parsed"] == []
     assert resp["parsed_count"] == 0
     assert resp["filters"]["category_prefixes"] == ["채플"]
+
+
+# ── SPR-99: entered_year 학번 필터 (교선 컴팩트 후보 뷰) ───────────────
+
+
+def _build_gyoseon_cache() -> LecturesCache:
+    """교선 학번 필터 테스트용 — 전 학번 태그 + 신학번 전용 + 구학번 전용."""
+    return LecturesCache(
+        year=2026,
+        semester="1",
+        groups={
+            "optional_elective_all": LectureGroupEntry(
+                category_type="optional_elective",
+                params={"category": "전체"},
+                lectures=[
+                    {
+                        "code": "3161011001",
+                        "name": "한류와대중문화",
+                        "category": "교선",
+                        "time_points": "3/3",
+                        "field": (
+                            "['23이후]문화·예술\n"
+                            "['20,'21~'22]의사소통/글로벌\n"
+                            "['19]기초역량\n"
+                            "['16-'18]기초역량\n"
+                            "['15이전]창의"
+                        ),
+                        "schedule_room": "목 13:00-14:15 (진리 A-김선생)",
+                    },
+                    {
+                        "code": "3161011002",
+                        "name": "신학번전용",
+                        "category": "교선",
+                        "time_points": "2/2",
+                        "field": "['23이후]과학·기술",
+                        "schedule_room": "화 09:00-10:15 (베어드홀 B-박선생)",
+                    },
+                    {
+                        "code": "3161011003",
+                        "name": "구학번전용",
+                        "category": "교선",
+                        "time_points": "3/3",
+                        "field": "['16-'18]기초역량\n['15이전]창의",
+                        "schedule_room": "월 14:00-15:15 (숭덕 02108-이선생)",
+                    },
+                ],
+                count=3,
+                error=None,
+            ),
+        },
+        cached_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_compact() -> None:
+    """entered_year 지정 → 컴팩트 후보(슬롯 없음) + 학번 필터 + field_tags 정리.
+
+    교선 ~337강의 parsed 전체(50K 스필)를 받지 않게 code/name/credits/field_tags
+    만 반환하고, 서버가 field_tags 학번 매칭 줄로 추린다 (SPR-99).
+    """
+    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False,
+        entered_year=2023,
+    )
+
+    items = resp["parsed"]
+    # 컴팩트 항목 — code/name/credits/field_tags만, 슬롯 없음
+    assert all(set(p) == {"code", "name", "credits", "field_tags"} for p in items)
+    codes = [p["code"] for p in items]
+    assert "3161011001" in codes  # 전 학번 → 2023 매칭
+    assert "3161011002" in codes  # 신학번 전용 → 2023 매칭
+    assert "3161011003" not in codes  # 구학번 전용 → 2023 비매칭 제외
+    assert resp["parsed_count"] == 2
+    # field_tags는 매칭 줄만으로 정리
+    g1 = next(p for p in items if p["code"] == "3161011001")
+    assert g1["field_tags"] == ["['23이후]문화·예술"]
+    assert g1["credits"] == 3.0
+    # filters echo + stats는 전체 기준
+    assert resp["filters"]["entered_year"] == 2023
+    assert resp["filters"]["category_prefixes"] == ["교선"]
+    assert resp["stats"]["total"] == 3
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_backward_compat() -> None:
+    """entered_year 미지정 → 기존 full parsed(슬롯 포함) (하위 호환)."""
+    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], include_subject_groups=False
+    )
+
+    assert resp["filters"]["entered_year"] is None
+    assert len(resp["parsed"]) == 3
+    assert "slots" in resp["parsed"][0]  # full 형태 유지
+    assert "field" in resp["parsed"][0]  # pass-through 유지
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_summary_omits_parsed() -> None:
+    """summary=True + entered_year → parsed 생략, parsed_count는 필터된 수."""
+    cache_mod.save_lectures_cache(_build_gyoseon_cache())
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", summary=True, category_prefixes=["교선"], entered_year=2023
+    )
+
+    assert "parsed" not in resp
+    assert resp["parsed_count"] == 2  # 구학번 전용 제외
+    assert resp["filters"]["entered_year"] == 2023
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_miss() -> None:
+    """miss 경로도 filters.entered_year echo 포함."""
+    resp = await server.parse_lectures_cache(
+        2026, "2", category_prefixes=["교선"], entered_year=2023
+    )
+
+    assert resp["_cache"]["source"] == "miss"
+    assert resp["parsed"] == []
+    assert resp["filters"]["entered_year"] == 2023
+
+
+@pytest.mark.asyncio
+async def test_parse_lectures_cache_entered_year_and_category_prefixes() -> None:
+    """entered_year는 선택 조건과 AND — category_prefixes가 먼저 교선만 고른다.
+
+    교선 외 강의(전기-)가 캐시에 있어도 category_prefixes=["교선"]에서 제외되고,
+    그 안에서 entered_year가 다시 구학번 전용을 걸러낸다.
+    """
+    cache = _build_gyoseon_cache()
+    cache.groups["major_IT대학_컴퓨터학부"] = LectureGroupEntry(
+        category_type="major",
+        params={"collage": "IT대학", "department": "컴퓨터학부"},
+        lectures=[
+            {
+                "code": "2150164203",
+                "name": "전기기초",
+                "category": "전기-컴퓨터학부",
+                "field": "[4차]",
+                "schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)",
+            },
+        ],
+        count=1,
+        error=None,
+    )
+    cache_mod.save_lectures_cache(cache)
+
+    resp = await server.parse_lectures_cache(
+        2026, "1", category_prefixes=["교선"], entered_year=2023
+    )
+
+    codes = [p["code"] for p in resp["parsed"]]
+    assert "2150164203" not in codes  # category_prefixes가 먼저 제외 (AND)
+    assert set(codes) == {"3161011001", "3161011002"}
+    assert resp["stats"]["total"] == 4  # 전기- 추가 포함, stats는 전체 기준
