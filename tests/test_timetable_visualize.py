@@ -483,14 +483,22 @@ def test_main_invalid_json_returns_1(renderer, tmp_path: Path) -> None:
 # ── 출력 경로 결정 (SPR-80: cwd 오염 방지) ─────────────────────────────
 
 
+def test_default_output_dir_prefers_plugin_data(renderer, monkeypatch) -> None:
+    """$CLAUDE_PLUGIN_DATA를 1순위로 사용 (프로젝트 캐시 관례 일치)."""
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", "/fake/plugin-data")
+    assert renderer.default_output_dir() == Path("/fake/plugin-data")
+
+
 def test_default_output_dir_prefers_xdg(renderer, monkeypatch) -> None:
     """$XDG_CACHE_HOME 설정 시 그 아래 soongpt 하위를 반환."""
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", "/fake/xdg")
     assert renderer.default_output_dir() == Path("/fake/xdg/soongpt")
 
 
 def test_default_output_dir_falls_back_to_home_cache(renderer, monkeypatch) -> None:
-    """XDG 미설정 시 ~/.cache/soongpt를 반환."""
+    """CLAUDE_PLUGIN_DATA/XDG 미설정 시 ~/.cache/soongpt를 반환."""
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setattr(renderer.Path, "home", lambda: Path("/fake/home"))
     assert renderer.default_output_dir() == Path("/fake/home/.cache/soongpt")
@@ -505,6 +513,7 @@ def test_resolve_out_path_default_uses_cache(
     renderer, tmp_path: Path, monkeypatch
 ) -> None:
     """--out 미지정 시 캐시 디렉토리로 결정하고 디렉토리를 생성."""
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     out_path = renderer.resolve_out_path(None)
     assert out_path == tmp_path / "cache" / "soongpt" / "timetable.html"
@@ -520,6 +529,7 @@ def test_resolve_out_path_falls_back_to_tempdir(
         renderer.Path, "mkdir", lambda *a, **k: (_ for _ in ()).throw(OSError("ro"))
     )
     monkeypatch.setattr(renderer.tempfile, "gettempdir", lambda: str(tmp_path / "tmp"))
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     assert renderer.resolve_out_path(None) == tmp_path / "tmp" / "timetable.html"
 
@@ -534,6 +544,7 @@ def test_main_default_output_not_in_cwd(
         '"schedule_room": "월 10:30-12:00 (베어드홀 01101-김자헌)"}]',
         encoding="utf-8",
     )
+    monkeypatch.delenv("CLAUDE_PLUGIN_DATA", raising=False)
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.chdir(tmp_path)  # cwd = tmp_path — 여기에 생성되면 실패
     rc = renderer.main([str(input_path)])

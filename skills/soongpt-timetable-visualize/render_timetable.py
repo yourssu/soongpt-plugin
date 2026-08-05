@@ -549,11 +549,15 @@ DEFAULT_OUT_FILENAME = "timetable.html"
 def default_output_dir() -> Path:
     """기본 출력 디렉토리 (SPR-80) — cwd 오염 방지.
 
-    `--out` 미지정 시 사용자 캐시 디렉토리(`$XDG_CACHE_HOME/soongpt` 또는
-    `~/.cache/soongpt`)를 기본으로 쓴다. 저장소/프로젝트 루트에 untracked
-    파일이 남지 않게 하기 위함. 경로만 반환하며 디렉토리 생성은 호출자가
-    한다.
+    프로젝트 캐시 관례와 동일하게 `$CLAUDE_PLUGIN_DATA`를 1순위로 쓴다
+    (플러그인 런타임에서 다른 캐시들과 co-locate). 미설정 시 standalone
+    실행으로 보고 사용자 캐시 디렉토리(`$XDG_CACHE_HOME/soongpt` 또는
+    `~/.cache/soongpt`)로 폴백한다. 저장소/프로젝트 루트에 untracked 파일이
+    남지 않게 하기 위함. 경로만 반환하며 디렉토리 생성은 호출자가 한다.
     """
+    base = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if base:
+        return Path(base)
     xdg = os.environ.get("XDG_CACHE_HOME")
     if xdg:
         return Path(xdg) / "soongpt"
