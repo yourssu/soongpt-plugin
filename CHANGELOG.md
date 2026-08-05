@@ -7,6 +7,21 @@
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-08-05
+
+개선 워크플로우 3차 (Iteration 4 실측 기반) — 교필 대형 그룹 스필 회피, 시각화 응답 경량화, 학부 재편 재수강 매칭 개선.
+
+### Added
+
+- `load_lectures_cache` `include_groups=False` 옵션 — codes 모드에서 그룹 메타(~30-40KB) 생략 (SPR-92) (#58)
+- `parse_lectures_cache` `include_subject_groups=False` 옵션 — summary/부분 조회에서 subject_groups(~20KB) 생략 (SPR-95) (#59)
+
+### Fixed
+
+- 교양필수 충족 시 `교필` prefix 제외 — 교필 427건(~500KB) 파일 스필 회피 (SPR-91) (#57)
+- 재수강 부분 매칭 `sub_category` 폴백 — 학부 재편으로 department 불일치해도 매칭 후보 인정 (SPR-93) (#56)
+- 채플 credits 문서 실측 기준 갱신 (0.5 → 0.5~1.0 종류별 상이) (SPR-94) (#59)
+
 ## [1.2.1] - 2026-08-05
 
 개선 워크플로우 2차 (Iteration 3·3.5 실측 기반) — 대용량 응답 잔여 병목(parse 1MB/load 673KB) 해소, 로그인 실패 안내 개선, 재수강 경계 케이스 명문화.
