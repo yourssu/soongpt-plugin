@@ -17,6 +17,7 @@ from soongpt_mcp.services.exceptions import (
     RusaintInternalError,
     RusaintTimeoutError,
     SSOTokenError,
+    is_no_lecture_error,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,32 @@ class RusaintCourseScheduleService:
         except (SSOTokenError, RusaintConnectionError, RusaintTimeoutError, RusaintInternalError):
             raise
         except rusaint.RusaintError as e:
+            if is_no_lecture_error(e):
+                # 해당 학기 미개설 과목 — 실패가 아니라 정상적인 빈 결과 (SPR-79).
+                # 스킬(soongpt-available-lectures)은 미개설을 count:0으로 기대한다.
+                # 카테고리별 식별 파라미터(category/keyword/major 등)를 로그에 남겨
+                # required_elective 외 경로에서도 어떤 조회인지 추적 가능하게 한다.
+                query_ctx = {
+                    "lecture_name": lecture_name,
+                    "category": category,
+                    "keyword": keyword,
+                    "major": major,
+                    "collage": collage,
+                    "department": department,
+                }
+                ctx = ", ".join(
+                    f"{k}={v!r}" for k, v in query_ctx.items() if v is not None
+                )
+                logger.info(
+                    "미개설 과목(빈 결과 반환): category_type=%s %s",
+                    category_type, ctx,
+                )
+                return {
+                    "lectures": [],
+                    "count": 0,
+                    "fetchTime": f"{time.time() - start_time:.2f}s",
+                    "includeDetails": include_details,
+                }
             logger.error(
                 f"Rusaint 오류: {type(e).__name__} - {e!s}",
                 exc_info=True,
