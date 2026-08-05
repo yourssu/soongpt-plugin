@@ -147,9 +147,17 @@ find_lectures(year, semester, category_type="optional_elective",
   `parse_lectures_cache(category_prefixes=["교선"])` 부분 조회 결과를
   학번 매칭으로 추려 올리는 방식으로 처리(→ composer 스킬).
 
-##### 3-B-2. 교양필수 전체 과목명 (필수)
+##### 3-B-2. 교양필수 전체 과목명
 
-1. 과목명 목록 조회:
+**교양필수 충족 시 이 단계 전체를 생략한다** — 교양필수 fetch(과목명 N개 각각 조회, 31과목 기준 2분 내외)는 전체 플로우 최대 병목이라, 졸업사정표에서 이미 충족이 확인되면 호출하지 않는다:
+
+- **판정**: `get_graduation_status()`의 `graduationSummary.generalRequired.satisfied == true`면 생략한다.
+  - 졸업사정표가 **대화 컨텍스트에 이미 있으면 재사용**한다 (builder 경유 시 2단계에서 확보 — 30일 TTL 캐시). 없으면 `get_graduation_status()`를 호출한다 (캐시 히트 시 저비용, 미스 시 ~9초지만 교양필수 2분 대비 이득).
+- **예외 (인터뷰 명시)**: 인터뷰 `subject_preferences`에 교양필수 수강 의사가 명시돼 있으면(성적 향상 재수강 등) `satisfied == true`여도 **아래 1~2를 그대로 실행**한다 (교필 재수강 후보 확보 필요). 인터뷰가 컨텍스트에 없으면 `get_interview(year, semester)`로 확인한다.
+- **보수적 폴백**: `generalRequired`가 `null`(항목 없음) 또는 `satisfied != true` → 아래 1~2 실행. 졸업사정표 조회 실패 → 아래 1~2 실행 (누락 방지).
+- **생략 시 언급 제외**: 이 단계를 생략하면 아래 4단계 결과 요약에서도 교양필수 카테고리를 언급하지 않는다. '조회 준비 중' 같은 안내 문구도 내지 않는다.
+
+1. 과목명 목록 조회 (위 생략 조건에 해당하지 않을 때만):
    ```
    list_required_electives(year, semester)
    ```
@@ -229,6 +237,7 @@ fetch가 끝나면 각 그룹은 **이미 서버가 캐시에 저장**했다. �
 - 총 강의 수 = 응답의 **`total_lectures`** 필드 (모든 groups의 count 합). 응답의 최상위
   `count`는 **그룹 수**(len(groups))이므로 총 강의 수와 혼동하지 않는다.
 - 카테고리별 count = 각 그룹의 `count` (예: "주전공 45건, 타전공인정 12건, 교양선택 337건(전 학번 분야 포함), 교양필수 31과목 142건, 채플 3건, 사이버대 20건, 교직 8건")
+- **교양필수 생략 시 요약에서 제외**: 3-B-2를 충족 생략했으면 교양필수 카테고리를 요약에 넣지 않는다 (해당 `required_elective_*` 그룹이 캐시에 없어 자연히 빠진다 — '조회 준비 중' 같은 보충 문구도 금지)
 - `error`가 있는 실패 카테고리 있으면 표시 (연계/융합 정상 실패 한쪽 포함)
 
 ### 5. 다음 단계 안내
@@ -259,7 +268,7 @@ fetch가 끝나면 각 그룹은 **이미 서버가 캐시에 저장**했다. �
   - 연계·융합: `profile.connected_major` 있을 때 (`connected_major` + `united_major` 양쪽 시도, 한쪽은 예외로 정상 무시)
   - 교직: `profile.teaching_certification == True`일 때
 - **채플 lecture_name (실제 학년 기반 단일 호출)**: `"채플"`은 무효값(에러). `profile.actual_grade`(보정 전 실제 학년, 없으면 `profile.grade` 폴백) `== 1` → `"소그룹채플"`, `>= 2`/불명 → `"비전채플"`로 **한 번만** 조회해 `groups["chapel"]`에 담는다 (병렬 2회 아님). 사용자가 특정 채플명(예: "한국인채플")을 명시하면 실제 학년 무관 그 이름으로. 두 종류는 실제 학년으로 분리돼 캐시에 섞이지 않는다 → composer는 실제 학년에 맞는 한 종류만 있다고 가정.
-- **교양필수**: `list_required_electives`가 반환한 과목명 전체를 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`로 각각 조회. 연도 필터링 없음 (optional_elective와 달리 과목명에 학번 태그 없음)
+- **교양필수**: `list_required_electives`가 반환한 과목명 전체를 `find_lectures(category_type="required_elective", lecture_name=<과목명>)`로 각각 조회. 연도 필터링 없음 (optional_elective와 달리 과목명에 학번 태그 없음). **교양필수 충족 시 3-B-2 전체 생략** — 요약·안내에서 교양필수 언급 제외 (인터뷰 수강 의사 명시 시 예외)
 - **교양필수 그룹 키 재사용**: `groups["required_elective_<과목명>"]`의 `<과목명>`은 `list_required_electives`가 반환한 **원본 문자열을 그대로** 써야 한다 (대괄호 `[SW와AI]`, 괄호 `(...)`, `&` 등 특수문자 포함). 후속 소비자가 키를 재구성할 때는 캐시의 groups 키를 그대로 조회하거나, 해당 그룹의 `params.lecture_name`(원본 과목명)으로 역조회하라.
 - **인터뷰 결과 소비**: `subject_preferences`에서 필수 과목/관심 분야 추출해 우선 순위 반영 — **이 이슈에서는 보류**, 후속 PR
 - 스킬은 `find_lectures`, `list_required_electives` MCP 도구를 소비. `list_optional_elective_categories`는 분야 목록 안내 용도로만 쓰고 3-B-1의 "전체" 1회 호출 흐름에서는 호출하지 않는다. 오케스트레이션은 스킬(LLM)이 담당
